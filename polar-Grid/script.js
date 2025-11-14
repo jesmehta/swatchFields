@@ -1,15 +1,12 @@
-/* Swatch Colour Wheel — Zoom + Preview (vanilla JS)
-   - HSB → polar placement
-   - Mouse wheel / slider zoom, drag-to-pan
-   - Large preview on hover (right panel)
-*/
+/* Swatch Colour Wheel — Zoom + Preview (square shadow + hi-res preview) */
 (() => {
   // ---------- UI ----------
-  const imgBaseEl = document.getElementById("imgBase");
-  const lutUrlEl  = document.getElementById("lutUrl");
-  const diamEl    = document.getElementById("diam");
-  const guidesEl  = document.getElementById("guides");
-  const loadBtn   = document.getElementById("loadBtn");
+  const imgBaseEl   = document.getElementById("imgBase");
+  const imgBaseHiEl = document.getElementById("imgBaseHi");
+  const lutUrlEl    = document.getElementById("lutUrl");
+  const diamEl      = document.getElementById("diam");
+  const guidesEl    = document.getElementById("guides");
+  const loadBtn     = document.getElementById("loadBtn");
 
   const zoomSlider = document.getElementById("zoom");
   const zoomVal    = document.getElementById("zoomVal");
@@ -25,9 +22,10 @@
   const meta    = document.getElementById("meta");
 
   // ---------- Config ----------
-  let IMG_BASE = "images/";
-  let LUT_URL  = "swatch_lookup.json";
-  let DIAM     = 1000;
+  let IMG_BASE   = "images/";
+  let IMG_BASE_HI= "images/"; // new (for preview)
+  let LUT_URL    = "swatch_lookup.json";
+  let DIAM       = 1000;
 
   // Base visual mapping (before size scale)
   const INNER_R   = 70;
@@ -38,18 +36,17 @@
   const MAX_ALPHA = 1.0;
 
   // ---------- View transform (pan/zoom) ----------
-  const view = {
-    scale: 1,
-    offsetX: 0,
-    offsetY: 0,
-  };
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const view = { scale: 1, offsetX: 0, offsetY: 0 };
+  const dpr  = Math.max(1, window.devicePixelRatio || 1);
 
   // ---------- State ----------
-  let entries = [];  // normalized LUT
-  let sprites = [];  // laid out at world coords (wheel-centered)
-  let sizeScale = 1; // multiplies sprite size
-  let hoverIdx = -1;
+  let entries   = [];  // normalized LUT
+  let sprites   = [];  // laid out at world coords (wheel-centered)
+  let sizeScale = 1;   // multiplies sprite size
+  let hoverIdx  = -1;
+
+  // hi-res cache (lazy)
+  const hiCache = new Map(); // filename -> HTMLImageElement | "error" | "loading"
 
   // ---------- Helpers ----------
   const toRad = (deg) => (deg % 360) * Math.PI / 180;
@@ -75,7 +72,6 @@
     draw();
   }
 
-  // ---------- Loaders ----------
   async function loadJSON(url) {
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -90,10 +86,10 @@
     });
   }
 
-  // ---------- App ----------
   async function loadAll() {
-    IMG_BASE = imgBaseEl.value.trim();
-    LUT_URL  = lutUrlEl.value.trim();
+    IMG_BASE    = imgBaseEl.value.trim();
+    IMG_BASE_HI = imgBaseHiEl.value.trim();
+    LUT_URL     = lutUrlEl.value.trim();
     setCanvasSize(parseInt(diamEl.value, 10) || 1000);
 
     // 1) LUT
@@ -112,15 +108,16 @@
       time: r.time
     })).filter(r => Number.isFinite(r.h) && Number.isFinite(r.s) && Number.isFinite(r.b));
 
-    // 2) Preload images
+    // 2) Preload base images
     const loads = entries.map(e => loadImage(IMG_BASE + e.filename).then(img => ({...e, img})).catch(()=>null));
     const loaded = (await Promise.all(loads)).filter(Boolean);
 
-    // 3) Layout at world coords (center 0,0)
+    // 3) Layout
     sprites = layout(loaded);
 
     // 4) Draw
     draw();
+    drawPreview(-1);
   }
 
   function layout(list) {
@@ -145,7 +142,6 @@
         }
       });
     }
-    // inner → outer
     arr.sort((a,b) => a.r - b.r);
     return arr;
   }
@@ -168,8 +164,8 @@
     ctx.save();
     applyView();
 
-    // rings
     ctx.lineWidth = 1 / view.scale;
+    // rings
     for (let S=0; S<=100; S+=20) {
       const r = map(S, 0,100, INNER_R, outR);
       ctx.strokeStyle = (S%50===0) ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.13)";
@@ -187,38 +183,72 @@
     ctx.restore();
   }
 
-  function drawSprites() {
+  // draw a rounded-rect shadow (square-ish under the swatch)
+  function fillRoundRect(x, y, w, h, r, color, alpha=1) {
+    const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
     ctx.save();
-    applyView();
-
-    for (let i=0;i<sprites.length;i++) {
-      const s = sprites[i];
-      const size = s.baseSize * sizeScale;
-      const a = lerp(MIN_ALPHA, MAX_ALPHA, s.b/100);
-
-      // hover glow
-      if (i === hoverIdx) {
-        ctx.save();
-        ctx.globalAlpha = 0.25;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, (size+8)/2, 0, Math.PI*2);
-        ctx.fillStyle = "#000";
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // draw image cropped square, scaled to size
-      const w = s.img.width, h = s.img.height;
-      const side = Math.min(w,h), sx = (w-side)/2, sy=(h-side)/2;
-
-      ctx.save();
-      ctx.globalAlpha = a;
-      ctx.drawImage(s.img, sx, sy, side, side, s.x - size/2, s.y - size/2, size, size);
-      ctx.restore();
-    }
-
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x+rr, y);
+    ctx.lineTo(x+w-rr, y);
+    ctx.quadraticCurveTo(x+w, y, x+w, y+rr);
+    ctx.lineTo(x+w, y+h-rr);
+    ctx.quadraticCurveTo(x+w, y+h, x+w-rr, y+h);
+    ctx.lineTo(x+rr, y+h);
+    ctx.quadraticCurveTo(x, y+h, x, y+h-rr);
+    ctx.lineTo(x, y+rr);
+    ctx.quadraticCurveTo(x, y, x+rr, y);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
+
+function drawSprites() {
+  ctx.save();
+  applyView();
+
+  for (let i = 0; i < sprites.length; i++) {
+    const s = sprites[i];
+    const size = s.baseSize * sizeScale;
+    const a = lerp(MIN_ALPHA, MAX_ALPHA, s.b / 100);
+
+    // --- shadow ONLY for hovered sprite ---
+    if (i === hoverIdx) {
+      const shadowPad = 4;
+      const rx = s.x - (size / 2) + 2;
+      const ry = s.y - (size / 2) + 2;
+      fillRoundRect(
+        rx, ry,
+        size + shadowPad, size + shadowPad,
+        Math.max(3, size * 0.08),
+        "black",
+        0.18 // subtle
+      );
+    }
+
+    // image (cropped square -> size)
+    const w = s.img.width, h = s.img.height;
+    const side = Math.min(w, h), sx = (w - side) / 2, sy = (h - side) / 2;
+
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.drawImage(s.img, sx, sy, side, side, s.x - size / 2, s.y - size / 2, size, size);
+    ctx.restore();
+
+    // optional hover outline for clarity
+    if (i === hoverIdx) {
+      ctx.save();
+      ctx.lineWidth = Math.max(1, 2 / view.scale);
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.strokeRect(s.x - size / 2, s.y - size / 2, size, size);
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+}
+
 
   function draw() {
     clear();
@@ -226,9 +256,8 @@
     drawSprites();
   }
 
-  // ---------- Hit test in world coords ----------
+  // ---------- Hit test ----------
   function screenToWorld(mx, my) {
-    // CSS px → world coords centered at (0,0)
     const rect = canvas.getBoundingClientRect();
     const x = mx - rect.left;
     const y = my - rect.top;
@@ -244,13 +273,18 @@
     for (let i=0;i<sprites.length;i++){
       const s = sprites[i];
       const size = s.baseSize * sizeScale;
-      const d = Math.hypot(x - s.x, y - s.y);
-      if (d < size * 0.6 && d < bestDist) { best = i; bestDist = d; }
+      const dX = Math.abs(x - s.x), dY = Math.abs(y - s.y);
+      // square-ish hit area; a little generous:
+      const hitHalf = size * 0.55;
+      if (dX <= hitHalf && dY <= hitHalf) {
+        const d = Math.hypot(dX, dY);
+        if (d < bestDist) { best = i; bestDist = d; }
+      }
     }
     return best;
   }
 
-  // ---------- Preview panel ----------
+  // ---------- Preview (with hi-res support) ----------
   function drawPreview(idx) {
     bctx.clearRect(0,0,big.width,big.height);
     if (idx < 0) {
@@ -261,15 +295,51 @@
     const pad = 8;
     const box = Math.min(big.width, big.height) - pad*2;
 
+    // choose image: hi-res if available (lazy)
+    let previewImg = s.img;
+    const fname = s.meta.filename;
+
+    if (IMG_BASE_HI) {
+      const cached = hiCache.get(fname);
+      if (cached === undefined) {
+        // start loading
+        hiCache.set(fname, "loading");
+        loadImage(IMG_BASE_HI + fname)
+          .then(img => {
+            hiCache.set(fname, img);
+            // redraw preview if still hovering this item
+            if (sprites[idx] && sprites[idx].meta.filename === fname && idx === hoverIdx) {
+              drawPreview(idx);
+            }
+          })
+          .catch(() => hiCache.set(fname, "error"));
+      } else if (cached instanceof HTMLImageElement) {
+        previewImg = cached;
+      }
+    }
+
     // crop square
-    const w = s.img.width, h = s.img.height;
+    const w = previewImg.width, h = previewImg.height;
     const side = Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
 
     // draw image
     bctx.save();
     bctx.imageSmoothingEnabled = true;
-    bctx.drawImage(s.img, sx, sy, side, side, pad, pad, box, box);
+    bctx.drawImage(previewImg, sx, sy, side, side, pad, pad, box, box);
     bctx.restore();
+
+    // loading indicator (if hi-res in flight)
+    if (hiCache.get(fname) === "loading") {
+      bctx.save();
+      bctx.fillStyle = "rgba(0,0,0,0.55)";
+      bctx.fillRect(pad, pad, box, box);
+      bctx.fillStyle = "#fff";
+      bctx.font = "bold 14px system-ui, sans-serif";
+      bctx.textAlign = "center";
+      bctx.textBaseline = "middle";
+      bctx.fillText("Loading hi-res…", pad + box/2, pad + box/2);
+      bctx.restore();
+    }
 
     // meta
     meta.innerHTML =
@@ -318,10 +388,8 @@
   }, { passive:false });
 
   function zoomAt(mx, my, factor) {
-    // clamp scale
     const newScale = clamp(view.scale * factor, 0.5, 4);
     factor = newScale / view.scale;
-    // anchor at cursor: adjust offsets so world point under cursor stays under cursor
     const rect = canvas.getBoundingClientRect();
     const cx = mx - rect.left - DIAM/2 - view.offsetX;
     const cy = my - rect.top  - DIAM/2 - view.offsetY;
@@ -329,7 +397,6 @@
     view.offsetY -= cy * (factor - 1);
     view.scale = newScale;
 
-    // sync slider
     zoomSlider.value = view.scale.toFixed(2);
     zoomVal.textContent = `${view.scale.toFixed(2)}×`;
     draw();
@@ -338,7 +405,6 @@
   // Sliders / controls
   zoomSlider.addEventListener("input", () => {
     const target = Number(zoomSlider.value);
-    // zoom at center
     const center = canvas.getBoundingClientRect();
     zoomAt(center.left + DIAM/2, center.top + DIAM/2, target / view.scale);
   });
@@ -357,6 +423,7 @@
   });
 
   loadBtn.addEventListener("click", () => {
+    hiCache.clear();
     loadAll().catch(err => {
       console.error(err);
       alert("Load failed: " + err.message);
@@ -368,7 +435,6 @@
     sizeVal.textContent = "1.00×";
     zoomVal.textContent = "1.00×";
     setCanvasSize(parseInt(diamEl.value,10) || 1000);
-    // draw empty guides
     draw();
     loadAll().catch(console.error);
   })();
