@@ -1,56 +1,166 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Dyestuff Swatch Tools</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8" />
+  <title>Swatch Atlas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --ink:#0b0b0c; --muted:#6b7280; --line:#e5e7eb; --bg:#fff; }
-    *{box-sizing:border-box}
-    body{margin:0;font:16px/1.55 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
-    header{padding:28px 20px;border-bottom:1px solid var(--line)}
-    header h1{margin:0 0 6px 0;font-size:22px}
-    header p{margin:0;color:var(--muted)}
-    main{max-width:880px;margin:24px auto;padding:0 20px}
-    .card{border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
-    .card h2{margin:0 0 6px 0;font-size:18px}
-    .card p{margin:6px 0 12px 0;color:var(--muted)}
-    a.button{display:inline-block;padding:10px 14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:var(--ink);background:#fafafa}
-    .small{color:var(--muted);font-size:13px}
-    ul{margin:8px 0 0 20px}
-    code{background:#f6f7f9;padding:2px 6px;border-radius:6px}
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: #fafafa;
+      color: #0d0d0d;
+    }
+    .page {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 2.2rem 1.3rem 3rem;
+    }
+    header h1 {
+      margin: 0 0 0.5rem;
+      font-size: 2rem;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 0;
+      max-width: 48rem;
+      color: #555;
+      font-size: 1rem;
+    }
+    .tools {
+      margin-top: 2rem;
+      display: grid;
+      gap: 1.5rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 1rem;
+      border: 1px solid #e2e5ea;
+      padding: 1.4rem 1.45rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.035);
+    }
+    .card h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.25rem;
+    }
+    .card p {
+      color: #555;
+      margin: 0.2rem 0 1rem;
+      font-size: 0.95rem;
+    }
+    .btn {
+      display: inline-flex;
+      padding: 0.5rem 1rem;
+      border-radius: 999px;
+      background: #2563eb;
+      border: 1px solid #2563eb;
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      margin-top: 0.3rem;
+    }
+    .btn:hover { filter: brightness(1.06); }
+    ul.points {
+      margin: 0.6rem 0 0.6rem 1.1rem;
+      padding: 0;
+      color: #444;
+      font-size: 0.9rem;
+    }
+    ul.points li { margin-bottom: 0.28rem; }
+    footer {
+      margin-top: 2.8rem;
+      padding-top: 1rem;
+      font-size: 0.8rem;
+      color: #666;
+      border-top: 1px solid #ddd;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Dyestuff Swatch Tools</h1>
-    <p>Visualise and recompose images using a library of dyed swatches. Built for experiments, teaching, and fun.</p>
-  </header>
-  <main>
-    <div class="card">
-      <h2>Polar / Grid Visualisation (v2.3)</h2>
-      <p>Explore the swatch set on a colour wheel (HSB) or as a sortable/filterable grid. Hover to inspect a swatch with full metadata.</p>
-      <a class="button" href="polar-grid/">Open Polar / Grid</a>
-      <p class="small">Hardcoded folders: <code>imagesBordered/</code> (display) and <code>imagesSuperCrop/</code> (hover preview). Lookup: <code>swatch_lookup.json</code>.</p>
+  <div class="page">
+    <header>
+      <h1>The Swatch Atlas</h1>
+      <p>
+        Experiments in Natural Dyes and BioChromes.
+        An interactive way to explore natural-dye colour swatches, and to rebuild images using those swatches as tiles.
+      </p>
+    </br>
+      <p>
+        Built as an extension of my Fabricademy program coursework to analyse the dyed swatches made during BioChromes week.
+      </p>
+    </br>
+      <p>
+        This set of tools is also a digital twin of what is intended to be a Material Swatches library. While these tools relate primarily to an analysis and paly with colour, the Material library will encompass much more. Consequently, other tools will also turn up here.
+      </p>
+
+    </header>
+
+    <div class="tools">
+
+      <!-- Swatch Explorer -->
+      <div class="card">
+        <h2>Swatch Explorer (Polar HSB & Grid)</h2>
+        <p>
+          Explore the entire swatch dataset visually through a colour wheel or parameter grid.
+        </p>
+
+        <ul class="points">
+          <li>Load swatches automatically</li>
+          <li>Switch between Polar and Grid views</li>
+          <li>Filter by dyestuff, pH, mordant, additive and dye time</li>
+          <li>Hover on any swatch to see a large preview and metadata</li>
+          <li>Zoom and adjust swatch size for clarity</li>
+        </ul>
+
+        <a class="btn" href="polar-grid/index.html">Open Swatch Explorer →</a>
+      </div>
+
+      <!-- Mosaic -->
+      <div class="card">
+        <h2>Swatch Mosaic Generator</h2>
+        <p>
+          Load an image and re-create it using swatches as pixels — each tile maps to one unique swatch.
+        </p>
+
+        <ul class="points">
+          <li>Load an image (upload or URL)</li>
+          <li>Choose tile size</li>
+          <li>Adjust H/S/B match weights for character or accuracy</li>
+          <li>Hover to inspect which swatch each tile came from</li>
+          <li>Export the mosaic as PNG and a tile→swatch CSV</li>
+        </ul>
+
+        <a class="btn" href="mosaic/index.html">Open Mosaic Generator →</a>
+      </div>
+
     </div>
 
-    <div class="card">
-      <h2>Swatch Mosaic (v1.1)</h2>
-      <p>Recreate any image using only your swatches (one tile = one swatch). Exports a traceable CSV mapping “tile → swatch”.</p>
-      <a class="button" href="mosaic/">Open Mosaic</a>
-      <p class="small">Hardcoded folders: <code>imagesSuperCrop/</code>. Lookup: <code>swatch_lookup.json</code>.</p>
-    </div>
+    <hr style="margin:3rem 0 2rem; border:0; border-top:1px solid #ddd;" />
 
-    <div class="card">
-      <h2>Instructions</h2>
-      <ul>
-        <li>Put swatch images in <code>imagesBordered/</code> (framed) and <code>imagesSuperCrop/</code> (tight squares).</li>
-        <li>Place <code>swatch_lookup.json</code> at the site root (or inside each tool folder if you prefer; update paths accordingly).</li>
-        <li>Host on GitHub Pages (this is pure static HTML + JS).</li>
-      </ul>
-    </div>
+<section>
+  <h2 style="font-size:1.15rem; margin:0 0 0.7rem;">Fab-stuff</h2>
+  <ul style="margin:0.4rem 0 1.4rem 1.2rem; padding:0; font-size:0.95rem; color:#444;">
+    <li><a href="YOUR_BIOCHROMES_LINK_HERE" target="_blank">Biochromes Week</a></li>
+    <li><a href="YOUR_FABRICACADEMY_LINK_HERE" target="_blank">Fabricademy Page</a></li>
+    <li><a href="YOUR_FABACADEMY_LINK_HERE" target="_blank">FabAcademy Page</a></li>
+  </ul>
+</section>
 
-    <p class="small">Made for rapid exploration. A future v3.0 will add D3 for cleaner axes/zoom and Pixi/Canvas for bigger datasets.</p>
-  </main>
+<section>
+  <h2 style="font-size:1.15rem; margin:0 0 0.7rem;">Find me elsewhere on the web</h2>
+  <ul style="margin:0.4rem 0 1.2rem 1.2rem; padding:0; font-size:0.95rem; color:#444;">
+    <li><a href="YOUR_LINKEDIN_URL_HERE" target="_blank">LinkedIn</a></li>
+    <li><a href="YOUR_INSTAGRAM_URL_HERE" target="_blank">Instagram</a></li>
+    <li><a href="YOUR_PORTFOLIO_URL_HERE" target="_blank">Portfolio Website</a></li>
+  </ul>
+</section>
+
+    <footer>
+      Swatch Atlas — Natural dye colour tools · v2.3
+    </footer>
+  </div>
 </body>
 </html>
