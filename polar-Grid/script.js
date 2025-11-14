@@ -1,14 +1,12 @@
 (() => {
-  // HARD-CODED PATHS (as per your workflow)
+  // HARD-CODED PATHS (adjust as needed for your repo structure)
   const SWATCH_FOLDER  = "../imagesSuperCrop/";   // main display images
-  const PREVIEW_FOLDER = "../imagesBordered/";  // high-res hover swatch
+  const PREVIEW_FOLDER = "../imagesBordered/";  // hover preview images
   const LUT_URL        = "../swatch_lookup.json";
 
   // --- DOM refs ---
   const canvas    = document.getElementById("view");
   const ctx       = canvas.getContext("2d");
-  const thumb     = document.getElementById("thumb");
-  const tctx      = thumb.getContext("2d");
   const hoverC    = document.getElementById("hoverSwatch");
   const hctx      = hoverC.getContext("2d");
 
@@ -80,11 +78,6 @@
     });
   }
 
-  function rgbToHex(r,g,b) {
-    const toHex = v => v.toString(16).padStart(2,"0");
-    return "#" + toHex(r) + toHex(g) + toHex(b);
-  }
-
   // sort helpers
   function sortPH(values) {
     const order = ["Acidic","Neutral","Alkaline"];
@@ -134,7 +127,6 @@
   }
 
   function labelPH(v) {
-    // display annotated, but underlying value remains raw
     if (v === "Acidic")  return "Acidic (~pH3)";
     if (v === "Neutral") return "Neutral (~pH7)";
     if (v === "Alkaline")return "Alkaline (~pH9)";
@@ -262,7 +254,6 @@
       let lut = await loadJSON(LUT_URL);
       if (!Array.isArray(lut)) lut = Object.values(lut);
 
-      // pre-shape
       const raw = lut.map(r => ({
         filename: r.filename,
         dyestuff: r.dyestuff,
@@ -275,14 +266,13 @@
         b:        Number(r.b)
       }));
 
-      // load bordered & preview images
       const promises = raw.map(async meta => {
         const mainPath    = SWATCH_FOLDER  + meta.filename;
         const previewPath = PREVIEW_FOLDER + meta.filename;
         try {
           const [imgMain, imgPreview] = await Promise.all([
             loadImage(mainPath),
-            loadImage(previewPath).catch(()=>loadImage(mainPath)) // fallback
+            loadImage(previewPath).catch(()=>loadImage(mainPath))
           ]);
           return { ...meta, imgMain, imgPreview };
         } catch (e) {
@@ -316,7 +306,6 @@
     if (!swatches.length) {
       clearCanvas();
       layout = [];
-      drawThumb();
       return;
     }
 
@@ -325,21 +314,6 @@
 
     if (mode === "polar") drawPolar();
     else drawGrid();
-
-    drawThumb();
-  }
-
-  function drawThumb() {
-    const w = canvas.width;
-    const h = canvas.height;
-    const scale = 0.35;
-    const tw = w * scale;
-    const th = h * scale;
-    thumb.width  = tw;
-    thumb.height = th;
-    tctx.clearRect(0,0,tw,th);
-    tctx.drawImage(canvas, 0, 0, w, h, 0, 0, tw, th);
-    thumb.style.display = "block";
   }
 
   function drawPolar() {
@@ -359,14 +333,12 @@
       ctx.save();
       ctx.strokeStyle = "#e5e7eb";
       ctx.lineWidth = 1;
-      // circles at B=20,40,60,80,100
       [20,40,60,80,100].forEach(br=>{
         const r = minR + (br/100) * (maxR-minR);
         ctx.beginPath();
         ctx.arc(cx,cy,r,0,Math.PI*2);
         ctx.stroke();
       });
-      // axes at main hues
       [0,60,120,180,240,300].forEach(hue=>{
         const a = hue * Math.PI/180;
         const r = maxR;
@@ -380,25 +352,26 @@
 
     // draw swatches
     filtered.forEach(s=>{
-      const angle = (s.h-90) * Math.PI/180; // rotate so 0° at top
+      const angle = (s.h-90) * Math.PI/180;
       const r = minR + (s.b/100) * (maxR-minR);
 
       const x = cx + Math.cos(angle)*r;
       const y = cy + Math.sin(angle)*r;
 
-      const half = size/2;
+      const sizePx = size;
+      const half = sizePx/2;
       ctx.save();
       ctx.beginPath();
-      ctx.rect(x-half, y-half, size, size);
+      ctx.rect(x-half, y-half, sizePx, sizePx);
       ctx.clip();
       const img = s.imgMain;
       const side = Math.min(img.width, img.height);
       const sx = (img.width-side)/2;
       const sy = (img.height-side)/2;
-      ctx.drawImage(img, sx, sy, side, side, x-half, y-half, size, size);
+      ctx.drawImage(img, sx, sy, side, side, x-half, y-half, sizePx, sizePx);
       ctx.restore();
 
-      layout.push({ x, y, size, swatch:s });
+      layout.push({ x, y, size:sizePx, swatch:s });
     });
   }
 
@@ -446,7 +419,6 @@
     const originX = margin + (w - margin*2 - gridW)/2;
     const originY = margin + (h - margin*2 - gridH)/2;
 
-    // precompute inner value sets per param
     const innerXVals = getParamValues(innerX, filtered);
     const innerYVals = getParamValues(innerY, filtered);
 
@@ -454,7 +426,6 @@
     const innerW = Math.max(cellW - pad*2, size);
     const innerH = Math.max(cellH - pad*2, size);
 
-    // guides & labels
     if (showGuidesEl.checked) {
       ctx.save();
       ctx.strokeStyle = "#e5e7eb";
@@ -464,7 +435,7 @@
       ctx.fillStyle = "#6b7280";
       ctx.font = "11px system-ui, sans-serif";
 
-      // vertical grid lines + X labels
+      // grid lines + X labels
       for (let i=0;i<=cols;i++) {
         const x = originX + cellW * i;
         ctx.beginPath();
@@ -477,11 +448,10 @@
         const label = formatAxisLabel(outerX, outerXVals[i]);
         ctx.fillText(label, cx, originY - 18);
       }
-      // outer X param name
       ctx.font = "bold 11px system-ui, sans-serif";
       ctx.fillText("X: "+ axisTitle(outerX), originX + gridW/2, originY - 32);
 
-      // horizontal grid lines + Y labels
+      // Y grid + labels
       ctx.font = "11px system-ui, sans-serif";
       for (let j=0;j<=rows;j++) {
         const y = originY + cellH * j;
@@ -497,7 +467,6 @@
         const label = formatAxisLabel(outerY, outerYVals[j]);
         ctx.fillText(label, originX - 6, cy);
       }
-      // outer Y param name
       ctx.save();
       ctx.translate(originX - 34, originY + gridH/2);
       ctx.rotate(-Math.PI/2);
@@ -510,8 +479,7 @@
       ctx.restore();
     }
 
-    // group swatches by outer cells
-    const cellMap = new Map(); // key "xVal|yVal" -> array of swatches
+    const cellMap = new Map();
     function keyXY(xVal,yVal){ return xVal+"|"+yVal; }
     filtered.forEach(s=>{
       const xVal = s[outerX];
@@ -521,7 +489,6 @@
       cellMap.get(key).push(s);
     });
 
-    // draw swatches cell by cell
     cellMap.forEach((list, key)=>{
       const [xVal,yVal] = key.split("|");
       const i = outerXVals.indexOf(xVal);
@@ -531,7 +498,6 @@
       const cellX = originX + cellW * i;
       const cellY = originY + cellH * j;
 
-      // layout inside cell
       list.forEach(s=>{
         const ix = Math.max(innerXVals.indexOf(s[innerX]), 0);
         const iy = Math.max(innerYVals.indexOf(s[innerY]), 0);
@@ -588,13 +554,16 @@
     if (!layout.length) return;
 
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top)  * scaleY;
 
     let best = null;
     let bestDist = Infinity;
     layout.forEach(entry=>{
-      const r = entry.size/1.5;
+      const r = entry.size/1.2; // a bit generous
       const d2 = distance2(mx,my, entry.x, entry.y);
       if (d2 < r*r && d2 < bestDist) {
         best = entry;
@@ -616,7 +585,6 @@
   }
 
   function showHover(s) {
-    // draw preview image
     hctx.clearRect(0,0,hoverC.width,hoverC.height);
     const img = s.imgPreview || s.imgMain;
     const side = Math.min(img.width, img.height);
@@ -636,7 +604,7 @@
     hoverFields.B.textContent        = s.b.toFixed(1);
   }
 
-  // --- initial ---
+  // --- init ---
   function init() {
     gridSettings.style.display = "none";
     zoomVal.textContent = zoomSl.value + "×";

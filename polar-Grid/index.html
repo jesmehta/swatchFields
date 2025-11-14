@@ -140,28 +140,20 @@
 
     #info { font-size:12px; color:var(--muted); }
 
-    /* right sidebar stuff */
-    .thumbWrap, .hoverWrap, .displayWrap {
+    /* right sidebar: only swatch preview + info */
+    .hoverWrap, .displayWrap {
       border:1px solid var(--border);
       border-radius:10px;
       padding:8px;
       margin-bottom:10px;
     }
-    .thumbWrap h4, .hoverWrap h4, .displayWrap h4 {
+    .hoverWrap h4, .displayWrap h4 {
       margin:0 0 6px 0;
       font-size:13px;
     }
-    #thumb {
-      display:none;
-      width:100%;
-      height:auto;
-      border-radius:6px;
-      border:1px solid var(--border);
-      background:#f9fafb;
-    }
     #hoverSwatch {
       width:100%;
-      max-width:180px;
+      max-width:220px;
       height:auto;
       aspect-ratio:1/1;
       border-radius:8px;
@@ -180,7 +172,7 @@
       margin-bottom:2px;
     }
 
-    .grid-only { display:none; } /* will be shown in JS when mode=grid */
+    .grid-only { display:none; } /* shown via JS when mode=grid */
 
     @media (max-width: 960px) {
       .app {
@@ -304,20 +296,12 @@
       <small id="info" class="muted">Load swatches to begin.</small>
     </main>
 
-    <!-- RIGHT SIDEBAR: thumb + hovered swatch + quick settings -->
+    <!-- RIGHT SIDEBAR: hovered swatch + quick info (no thumbnail) -->
     <aside class="right">
-      <div class="thumbWrap">
-        <h4>Original colour wheel thumbnail</h4>
-        <canvas id="thumb"></canvas>
-        <small class="muted">
-          Currently mirrors the main view. Future version can hold a captured snapshot.
-        </small>
-      </div>
-
       <div class="hoverWrap">
         <h4>Hovered swatch</h4>
         <div class="row" style="align-items:flex-start;">
-          <canvas id="hoverSwatch" width="180" height="180"></canvas>
+          <canvas id="hoverSwatch" width="220" height="220"></canvas>
           <div id="hoverMeta">
             <div class="row"><b>File:</b>&nbsp;<span data-field="filename">—</span></div>
             <div class="row"><b>Dye:</b>&nbsp;<span data-field="dyestuff">—</span></div>
