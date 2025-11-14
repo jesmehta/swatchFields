@@ -1,166 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Swatch Atlas</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-        sans-serif;
-      background: #fafafa;
-      color: #0d0d0d;
-    }
-    .page {
-      max-width: 920px;
-      margin: 0 auto;
-      padding: 2.2rem 1.3rem 3rem;
-    }
-    header h1 {
-      margin: 0 0 0.5rem;
-      font-size: 2rem;
-      letter-spacing: 0.02em;
-    }
-    header p {
-      margin: 0;
-      max-width: 48rem;
-      color: #555;
-      font-size: 1rem;
-    }
-    .tools {
-      margin-top: 2rem;
-      display: grid;
-      gap: 1.5rem;
-    }
-    .card {
-      background: #fff;
-      border-radius: 1rem;
-      border: 1px solid #e2e5ea;
-      padding: 1.4rem 1.45rem;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.035);
-    }
-    .card h2 {
-      margin: 0 0 0.4rem;
-      font-size: 1.25rem;
-    }
-    .card p {
-      color: #555;
-      margin: 0.2rem 0 1rem;
-      font-size: 0.95rem;
-    }
-    .btn {
-      display: inline-flex;
-      padding: 0.5rem 1rem;
-      border-radius: 999px;
-      background: #2563eb;
-      border: 1px solid #2563eb;
-      color: #fff;
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-decoration: none;
-      margin-top: 0.3rem;
-    }
-    .btn:hover { filter: brightness(1.06); }
-    ul.points {
-      margin: 0.6rem 0 0.6rem 1.1rem;
-      padding: 0;
-      color: #444;
-      font-size: 0.9rem;
-    }
-    ul.points li { margin-bottom: 0.28rem; }
-    footer {
-      margin-top: 2.8rem;
-      padding-top: 1rem;
-      font-size: 0.8rem;
-      color: #666;
-      border-top: 1px solid #ddd;
-      text-align: center;
-    }
-  </style>
+<meta charset="UTF-8" />
+<title>The Swatch Atlas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<style>
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #fafafa;
+    color: #222;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  aside {
+    width: 290px;
+    background: #111;
+    color: #ddd;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+  aside h2 {
+    margin-top: 18px;
+    color: #fff;
+    font-size: 1.2rem;
+  }
+  aside a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px;
+    margin: 6px 0;
+    text-decoration: none;
+    color: #ddd;
+    border-radius: 4px;
+  }
+  aside a:hover {
+    background: #222;
+  }
+  aside img {
+    height: 20px;
+    width: 20px;
+    object-fit: contain;
+  }
+
+  /* Main content */
+  main {
+    flex: 1;
+    padding: 36px;
+    box-sizing: border-box;
+    max-width: 880px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 2.2rem;
+  }
+  header p {
+    font-size: 1.1rem;
+    line-height: 1.45em;
+    margin: 1rem 0;
+  }
+
+  .tool-card {
+    margin: 32px 0;
+    background: white;
+    padding: 24px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+  }
+  .tool-card h2 {
+    margin-top: 0;
+  }
+  .tool-card a {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 10px 16px;
+    background: #111;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+  }
+  .tool-card a:hover {
+    background: #333;
+  }
+
+</style>
 </head>
+
 <body>
-  <div class="page">
-    <header>
-      <h1>The Swatch Atlas</h1>
-      <p>
-        Experiments in Natural Dyes and BioChromes.
-        An interactive way to explore natural-dye colour swatches, and to rebuild images using those swatches as tiles.
-      </p>
-    </br>
-      <p>
-        Built as an extension of my Fabricademy program coursework to analyse the dyed swatches made during BioChromes week.
-      </p>
-    </br>
-      <p>
-        This set of tools is also a digital twin of what is intended to be a Material Swatches library. While these tools relate primarily to an analysis and paly with colour, the Material library will encompass much more. Consequently, other tools will also turn up here.
-      </p>
 
-    </header>
+<!-- SIDEBAR -->
+<aside>
+  <h2>Fab-stuff</h2>
+  <a href="https://class.textile-academy.org/2026/jesal-mehta/assignments/week04/"><span>🫐</span> Biochromes Week</a>
+  <a href="https://class.textile-academy.org/2026/jesal-mehta/"><img src="assets/fabricademy.svg" alt=""> Fabricademy Page</a>
+  <a href="https://fabacademy.org/2023/labs/riidl/students/jesal-mehta/"><img src="assets/fabacademy.svg" alt=""> FabAcademy Page</a>
 
-    <div class="tools">
+  <h2>Find me elsewhere</h2>
+  <a href="https://www.linkedin.com/in/jesal-mehta-8762404a/"><span>🔗</span> LinkedIn</a>
+  <a href="https://www.instagram.com/cabofcuriosity/"><span>📸</span> Instagram</a>
+  <a href="https://jesalmehta.com"><span>🚀</span> Portfolio Website</a>
+  <a href="https://cabinetofcuriosities.com"><span>🚀</span> Sandbox Website for Experiments</a>
 
-      <!-- Swatch Explorer -->
-      <div class="card">
-        <h2>Swatch Explorer (Polar HSB & Grid)</h2>
-        <p>
-          Explore the entire swatch dataset visually through a colour wheel or parameter grid.
-        </p>
+</aside>
 
-        <ul class="points">
-          <li>Load swatches automatically</li>
-          <li>Switch between Polar and Grid views</li>
-          <li>Filter by dyestuff, pH, mordant, additive and dye time</li>
-          <li>Hover on any swatch to see a large preview and metadata</li>
-          <li>Zoom and adjust swatch size for clarity</li>
-        </ul>
+<!-- MAIN -->
+<main>
+<header>
+  <h1>The Swatch Atlas</h1>
+  <p>
+    Experiments in Natural Dyes and BioChromes.
+    An interactive way to explore natural-dye colour swatches,
+    and to rebuild images using those swatches as tiles.
+  </p>
+  <p>
+    Built as an extension of my Fabricademy program coursework to
+    analyse the dyed swatches made during BioChromes week.
+  </p>
+  <p>
+    This set of tools is also a digital twin of what is intended to be
+    a Material Swatches library. While these tools relate primarily to
+    an analysis and play with colour, the Material library will
+    encompass much more. Consequently, other tools will also turn up here.
+  </p>
+</header>
 
-        <a class="btn" href="polar-grid/index.html">Open Swatch Explorer →</a>
-      </div>
+<!-- TOOL 1 -->
+<div class="tool-card">
+  <h2>🧭 Explore Swatches (Polar & Grid)</h2>
+  <p>
+    Visualise dye swatches on a colour wheel or on a grid.
+    Filter by dyestuff, pH, mordant, additive and time.
+    Hover to inspect swatches in high resolution.
+  </p>
+  <a href="tools/polar-grid.html">Open Swatch Explorer</a>
+</div>
 
-      <!-- Mosaic -->
-      <div class="card">
-        <h2>Swatch Mosaic Generator</h2>
-        <p>
-          Load an image and re-create it using swatches as pixels — each tile maps to one unique swatch.
-        </p>
+<!-- TOOL 2 -->
+<div class="tool-card">
+  <h2>🧩 Mosaic Generator</h2>
+  <p>
+    Rebuild any uploaded image using the dye swatches as
+    pixel-tiles. Adjust tile scale for detail vs effect, and
+    hover to trace each tile back to its original swatch.
+  </p>
+  <a href="tools/mosaic.html">Open Mosaic Generator</a>
+</div>
+<footer>
+        The Swatch Atlas · v2.3
+</footer>
+</main>
 
-        <ul class="points">
-          <li>Load an image (upload or URL)</li>
-          <li>Choose tile size</li>
-          <li>Adjust H/S/B match weights for character or accuracy</li>
-          <li>Hover to inspect which swatch each tile came from</li>
-          <li>Export the mosaic as PNG and a tile→swatch CSV</li>
-        </ul>
-
-        <a class="btn" href="mosaic/index.html">Open Mosaic Generator →</a>
-      </div>
-
-    </div>
-
-    <hr style="margin:3rem 0 2rem; border:0; border-top:1px solid #ddd;" />
-
-<section>
-  <h2 style="font-size:1.15rem; margin:0 0 0.7rem;">Fab-stuff</h2>
-  <ul style="margin:0.4rem 0 1.4rem 1.2rem; padding:0; font-size:0.95rem; color:#444;">
-    <li><a href="YOUR_BIOCHROMES_LINK_HERE" target="_blank">Biochromes Week</a></li>
-    <li><a href="YOUR_FABRICACADEMY_LINK_HERE" target="_blank">Fabricademy Page</a></li>
-    <li><a href="YOUR_FABACADEMY_LINK_HERE" target="_blank">FabAcademy Page</a></li>
-  </ul>
-</section>
-
-<section>
-  <h2 style="font-size:1.15rem; margin:0 0 0.7rem;">Find me elsewhere on the web</h2>
-  <ul style="margin:0.4rem 0 1.2rem 1.2rem; padding:0; font-size:0.95rem; color:#444;">
-    <li><a href="YOUR_LINKEDIN_URL_HERE" target="_blank">LinkedIn</a></li>
-    <li><a href="YOUR_INSTAGRAM_URL_HERE" target="_blank">Instagram</a></li>
-    <li><a href="YOUR_PORTFOLIO_URL_HERE" target="_blank">Portfolio Website</a></li>
-  </ul>
-</section>
-
-    <footer>
-      Swatch Atlas — Natural dye colour tools · v2.3
-    </footer>
-  </div>
 </body>
+
+
+      
 </html>
+
