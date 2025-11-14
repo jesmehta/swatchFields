@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Dyestuff Swatch Tools</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --ink:#0b0b0c; --muted:#6b7280; --line:#e5e7eb; --bg:#fff; }
+    *{box-sizing:border-box}
+    body{margin:0;font:16px/1.55 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+    header{padding:28px 20px;border-bottom:1px solid var(--line)}
+    header h1{margin:0 0 6px 0;font-size:22px}
+    header p{margin:0;color:var(--muted)}
+    main{max-width:880px;margin:24px auto;padding:0 20px}
+    .card{border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+    .card h2{margin:0 0 6px 0;font-size:18px}
+    .card p{margin:6px 0 12px 0;color:var(--muted)}
+    a.button{display:inline-block;padding:10px 14px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:var(--ink);background:#fafafa}
+    .small{color:var(--muted);font-size:13px}
+    ul{margin:8px 0 0 20px}
+    code{background:#f6f7f9;padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dyestuff Swatch Tools</h1>
+    <p>Visualise and recompose images using a library of dyed swatches. Built for experiments, teaching, and fun.</p>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Polar / Grid Visualisation (v2.3)</h2>
+      <p>Explore the swatch set on a colour wheel (HSB) or as a sortable/filterable grid. Hover to inspect a swatch with full metadata.</p>
+      <a class="button" href="polar-grid/">Open Polar / Grid</a>
+      <p class="small">Hardcoded folders: <code>imagesBordered/</code> (display) and <code>imagesSuperCrop/</code> (hover preview). Lookup: <code>swatch_lookup.json</code>.</p>
+    </div>
+
+    <div class="card">
+      <h2>Swatch Mosaic (v1.1)</h2>
+      <p>Recreate any image using only your swatches (one tile = one swatch). Exports a traceable CSV mapping “tile → swatch”.</p>
+      <a class="button" href="mosaic/">Open Mosaic</a>
+      <p class="small">Hardcoded folders: <code>imagesSuperCrop/</code>. Lookup: <code>swatch_lookup.json</code>.</p>
+    </div>
+
+    <div class="card">
+      <h2>Instructions</h2>
+      <ul>
+        <li>Put swatch images in <code>imagesBordered/</code> (framed) and <code>imagesSuperCrop/</code> (tight squares).</li>
+        <li>Place <code>swatch_lookup.json</code> at the site root (or inside each tool folder if you prefer; update paths accordingly).</li>
+        <li>Host on GitHub Pages (this is pure static HTML + JS).</li>
+      </ul>
+    </div>
+
+    <p class="small">Made for rapid exploration. A future v3.0 will add D3 for cleaner axes/zoom and Pixi/Canvas for bigger datasets.</p>
+  </main>
+</body>
+</html>
