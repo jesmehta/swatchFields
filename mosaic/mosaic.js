@@ -1,7 +1,8 @@
 (() => {
-  // HARD-CODED locations (as requested)
-  const IMG_BASE = "../imagesSuperCrop/";  // tight, square swatches
-  const LUT_URL  = "../swatch_lookup.json";
+  // HARD-CODED PATHS (adjust as needed for your repo structure)
+  const TILE_FOLDER    = "../imagesSuperCrop/";   // tight square tiles for mosaic
+  const PREVIEW_FOLDER = "../imagesBordered/";    // bordered swatches for hover preview
+  const LUT_URL        = "../swatch_lookup.json";
 
   // --- DOM ---
   const loadBtn     = document.getElementById("loadSwatches");
@@ -28,9 +29,9 @@
   const hctx        = hoverCanvas.getContext("2d");
   const hoverMeta   = document.getElementById("hoverMeta");
 
-  let swatches = [];      // { filename, img, h,s,b, dyestuff, pH, mordant, additive, time }
-  let sampleImg = null;   // HTMLImageElement
-  let sampleData = null;  // ImageData
+  let swatches = [];      // { filename, h,s,b, dyestuff, pH, mordant, additive, time, imgTile, imgPreview }
+  let sampleImg = null;
+  let sampleData = null;
   let mosaicRows = [];
   let mosaicGrid = [];
   let lastTileSize = 20;
@@ -65,15 +66,30 @@
   }
   window.addEventListener("resize", ()=> showThumbEl.checked && updateThumbVisibility());
 
-  // --- SWATCH LOAD (hardcoded paths) ---
-  document.getElementById("loadSwatches").addEventListener("click", async ()=>{
+  // --- SWATCH LOAD (tiles & preview) ---
+  loadBtn.addEventListener("click", async ()=>{
     try{
       setStatus("loading…");
       let lut = await loadJSON(LUT_URL);
       if(!Array.isArray(lut)) lut = Object.values(lut);
-      const meta = lut.map(r=>({ filename:r.filename, h:+r.h, s:+r.s, b:+r.b, dyestuff:r.dyestuff, pH:r.pH, mordant:r.mordant, additive:r.additive, time:r.time }))
-                      .filter(r=>Number.isFinite(r.h)&&Number.isFinite(r.s)&&Number.isFinite(r.b));
-      const imgs = await Promise.all(meta.map(m=> loadImage(IMG_BASE + m.filename, false).then(img=>({...m,img})).catch(()=>null)));
+      const meta = lut.map(r=>({
+        filename:r.filename,
+        h:+r.h,
+        s:+r.s,
+        b:+r.b,
+        dyestuff:r.dyestuff,
+        pH:r.pH,
+        mordant:r.mordant,
+        additive:r.additive,
+        time:r.time
+      })).filter(r=>Number.isFinite(r.h)&&Number.isFinite(r.s)&&Number.isFinite(r.b));
+
+      const imgs = await Promise.all(meta.map(m=>
+        Promise.all([
+          loadImage(TILE_FOLDER    + m.filename, false),
+          loadImage(PREVIEW_FOLDER + m.filename, false).catch(()=>loadImage(TILE_FOLDER + m.filename, false))
+        ]).then(([imgTile,imgPreview])=>({ ...m, imgTile, imgPreview })).catch(()=>null)
+      ));
       swatches = imgs.filter(Boolean);
       setStatus(`ready (${swatches.length} swatches)`);
       info.textContent = "Swatches loaded. Pick a sample image and Render.";
@@ -145,9 +161,20 @@
           if(sc<bestScore){best=s;bestScore=sc;}
         }
         if(best){
-          const img=best.img, side=Math.min(img.width,img.height), sx=(img.width-side)/2, sy=(img.height-side)/2;
+          const img = best.imgTile; // tile image = SuperCrop
+          const side=Math.min(img.width,img.height);
+          const sx=(img.width-side)/2;
+          const sy=(img.height-side)/2;
           octx.drawImage(img,sx,sy,side,side,x,y,tile,tile);
-          rows.push({tx,ty,x,y,w:tile,h:tile,tileH:th,tileS:ts,tileB:tb,filename:best.filename,swatchH:best.h,swatchS:best.s,swatchB:best.b,dyestuff:best.dyestuff,pH:best.pH,mordant:best.mordant,additive:best.additive,time:best.time,score:bestScore,img:best.img});
+          rows.push({
+            tx,ty,x,y,w:tile,h:tile,
+            tileH:th,tileS:ts,tileB:tb,
+            filename:best.filename,
+            swatchH:best.h,swatchS:best.s,swatchB:best.b,
+            dyestuff:best.dyestuff,pH:best.pH,mordant:best.mordant,additive:best.additive,time:best.time,
+            score:bestScore,
+            swatch:best
+          });
         }
       }
     }
@@ -161,28 +188,59 @@
     saveCSV.onclick=()=>{ const csv=toCSV(rows); downloadBlob("mosaic_tile_to_swatch.csv","text/csv",csv); };
   });
 
-  // --- hover over mosaic -> swatch panel ---
+  // --- hover over mosaic -> swatch panel (uses Bordered preview) ---
   out.addEventListener("mousemove",(e)=>{
     if(!mosaicGrid.length) return;
-    const rect=out.getBoundingClientRect();
-    const mx=e.clientX-rect.left, my=e.clientY-rect.top;
-    const tx=Math.floor(mx/lastTileSize), ty=Math.floor(my/lastTileSize);
+
+    const rect = out.getBoundingClientRect();
+    const scaleX = out.width  / rect.width;
+    const scaleY = out.height / rect.height;
+
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top)  * scaleY;
+
+    const tx=Math.floor(mx/lastTileSize);
+    const ty=Math.floor(my/lastTileSize);
     if(tx<0||ty<0||tx>=tilesX||ty>=tilesY){ clearHover(); return; }
     const row=mosaicGrid[ty]?.[tx]; if(!row){ clearHover(); return; }
-    renderHover(row);
+    renderHover(row.swatch);
   });
+
   out.addEventListener("mouseleave", clearHover);
 
   function clearHover(){
     hctx.clearRect(0,0,hoverCanvas.width,hoverCanvas.height);
-    hoverMeta.innerHTML = `<div><b>File:</b> —</div><div><b>Dye:</b> —</div><div><b>pH:</b> —</div><div><b>Mordant:</b> —</div><div><b>Additive:</b> —</div><div><b>Time:</b> —</div><div class="sep"></div><div><b>H:</b> — <b>S:</b> — <b>B:</b> —</div><div><b>Score:</b> —</div><small class="subtle">Move cursor over mosaic.</small>`;
+    hoverMeta.innerHTML = `
+      <div><b>File:</b> —</div>
+      <div><b>Dye:</b> —</div>
+      <div><b>pH:</b> —</div>
+      <div><b>Mordant:</b> —</div>
+      <div><b>Additive:</b> —</div>
+      <div><b>Time:</b> —</div>
+      <div class="sep"></div>
+      <div><b>H:</b> — <b>S:</b> — <b>B:</b> —</div>
+      <small class="subtle">Move cursor over mosaic.</small>
+    `;
   }
-  function renderHover(row){
+
+  function renderHover(s){
     hctx.clearRect(0,0,hoverCanvas.width,hoverCanvas.height);
-    const img=row.img, side=Math.min(img.width,img.height), sx=(img.width-side)/2, sy=(img.height-side)/2;
+    const img = s.imgPreview || s.imgTile;
+    const side=Math.min(img.width,img.height);
+    const sx=(img.width-side)/2;
+    const sy=(img.height-side)/2;
     hctx.imageSmoothingEnabled=true;
     hctx.drawImage(img,sx,sy,side,side,0,0,hoverCanvas.width,hoverCanvas.height);
-    hoverMeta.innerHTML = `<div><b>File:</b> ${row.filename}</div><div><b>Dye:</b> ${row.dyestuff}</div><div><b>pH:</b> ${row.pH}</div><div><b>Mordant:</b> ${row.mordant}</div><div><b>Additive:</b> ${row.additive}</div><div><b>Time:</b> ${row.time}</div><div class="sep"></div><div><b>H:</b> ${row.swatchH.toFixed(2)} <b>S:</b> ${row.swatchS.toFixed(2)} <b>B:</b> ${row.swatchB.toFixed(2)}</div><div><b>Score:</b> ${row.score.toFixed(3)}</div>`;
+    hoverMeta.innerHTML = `
+      <div><b>File:</b> ${s.filename}</div>
+      <div><b>Dye:</b> ${s.dyestuff}</div>
+      <div><b>pH:</b> ${s.pH}</div>
+      <div><b>Mordant:</b> ${s.mordant}</div>
+      <div><b>Additive:</b> ${s.additive}</div>
+      <div><b>Time:</b> ${s.time}</div>
+      <div class="sep"></div>
+      <div><b>H:</b> ${s.h.toFixed(2)} <b>S:</b> ${s.s.toFixed(2)} <b>B:</b> ${s.b.toFixed(2)}</div>
+    `;
   }
 
 })();
