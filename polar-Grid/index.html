@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Swatch Colour Wheel — Zoom + Preview</title>
+  <title>Swatch Browser — Filters + Polar/Grid + Preview</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { --ui:#0b0b0c; --muted:#6b7280; --bg:#ffffff; --border:#e5e7eb; }
@@ -10,13 +10,12 @@
     h2 { margin:0 0 6px; }
     .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
     label { font-weight:600; }
-    input[type="text"], input[type="number"], input[type="range"] {
-      padding:6px 8px; border:1px solid var(--border); border-radius:8px; min-width:150px;
+    input[type="text"], input[type="number"], input[type="range"], select {
+      padding:6px 8px; border:1px solid var(--border); border-radius:8px; min-width:140px;
     }
     button { padding:8px 12px; border:1px solid var(--border); background:#fafafa; border-radius:8px; cursor:pointer; }
-    button:disabled { opacity:.6; cursor:not-allowed; }
     .hint { color:var(--muted); font-size:12px; }
-    .grid { display:grid; grid-template-columns: min(92vw, 1100px) 340px; gap:16px; align-items:start; }
+    .layout { display:grid; grid-template-columns: min(70vw, 1020px) 360px; gap:16px; align-items:start; }
     #wheel { display:block; width:100%; height:auto; background:#fff; border:1px solid var(--border); border-radius:12px; touch-action:none; }
     #preview { position:sticky; top:16px; border:1px solid var(--border); border-radius:12px; padding:12px; }
     #big { width:100%; height:auto; display:block; background:#fff; border-radius:8px; }
@@ -24,43 +23,86 @@
     .kv b { color:#60a5fa; font-weight:600; }
     .sep { height:1px; background:var(--border); margin:10px 0; }
     .pill { font-size:11px; background:#f3f4f6; border:1px solid var(--border); padding:4px 8px; border-radius:999px; }
+    .panel { border:1px solid var(--border); border-radius:10px; padding:10px; }
+    .filters { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+    .fset h4 { margin:0 0 6px; font-size:13px; }
+    .fset .opts { max-height:160px; overflow:auto; display:grid; gap:4px; }
+    .modeRow { display:flex; gap:14px; align-items:center; }
+    .gridControls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .badge { display:inline-block; padding:2px 6px; border:1px solid var(--border); border-radius:999px; font-size:11px; background:#f8fafc; }
   </style>
 </head>
 <body>
-  <h2>Swatch Colour Wheel</h2>
-  <div class="hint">Zoom with mouse wheel or slider · drag to pan · hover for big preview</div>
+  <h2>Swatch Browser</h2>
+  <div class="hint">Filter by any attribute · Switch between polar (HSB wheel) and grid (any two axes) · Hover for big preview</div>
 
   <div class="row">
-    <label for="imgBase">Images folder:</label>
+    <label for="imgBase">Images:</label>
     <input id="imgBase" type="text" value="images/" />
-    <label for="imgBaseHi">Preview images folder (hi-res):</label>
+    <label for="imgBaseHi">Preview (hi-res):</label>
     <input id="imgBaseHi" type="text" value="images/" />
-  </div>
-
-  <div class="row">
     <label for="lutUrl">Lookup JSON:</label>
     <input id="lutUrl" type="text" value="swatch_lookup.json" />
-    <label for="diam">Wheel size (px):</label>
-    <input id="diam" type="number" value="1000" step="50" min="500" max="1800" />
-    <label><input id="guides" type="checkbox" checked /> Show guides</label>
+    <label for="diam">Canvas (px):</label>
+    <input id="diam" type="number" value="1000" step="50" min="600" max="1800" />
     <button id="loadBtn">Load / Reload</button>
   </div>
 
   <div class="row">
+    <div class="modeRow">
+      <label>Display:</label>
+      <label><input type="radio" name="mode" value="polar" checked /> Polar (HSB wheel)</label>
+      <label><input type="radio" name="mode" value="grid" /> Grid</label>
+    </div>
+    <label><input id="guides" type="checkbox" checked /> Show guides</label>
     <label for="zoom">Zoom:</label>
     <input id="zoom" type="range" min="0.5" max="4" value="1" step="0.05" />
     <span id="zoomVal" class="pill">1.00×</span>
     <label for="sizeScale">Swatch size:</label>
-    <input id="sizeScale" type="range" min="0.6" max="1.6" value="1" step="0.05" />
+    <input id="sizeScale" type="range" min="0.6" max="1.8" value="1" step="0.05" />
     <span id="sizeVal" class="pill">1.00×</span>
     <button id="resetView">Reset View</button>
   </div>
 
-  <div class="grid">
-    <canvas id="wheel" width="1000" height="1000"></canvas>
+  <div class="panel">
+    <div class="filters">
+      <div class="fset">
+        <h4>Dyestuff</h4>
+        <div id="f-dyestuff" class="opts"></div>
+      </div>
+      <div class="fset">
+        <h4>pH</h4>
+        <div id="f-pH" class="opts"></div>
+      </div>
+      <div class="fset">
+        <h4>Mordant</h4>
+        <div id="f-mordant" class="opts"></div>
+      </div>
+      <div class="fset">
+        <h4>Additive</h4>
+        <div id="f-additive" class="opts"></div>
+      </div>
+      <div class="fset">
+        <h4>Time</h4>
+        <div id="f-time" class="opts"></div>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="gridControls">
+      <span class="badge">Grid mode</span>
+      <label for="xAxis">X axis:</label>
+      <select id="xAxis"></select>
+      <label for="yAxis">Y axis:</label>
+      <select id="yAxis"></select>
+      <label for="gBy">Group by:</label>
+      <select id="gBy"></select>
+    </div>
+  </div>
 
+  <div class="layout">
+    <canvas id="wheel" width="1000" height="1000"></canvas>
     <div id="preview">
-      <canvas id="big" width="320" height="320"></canvas>
+      <canvas id="big" width="340" height="340"></canvas>
       <div class="sep"></div>
       <div id="meta" class="kv">Hover a swatch…</div>
     </div>
