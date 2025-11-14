@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Swatch Colour Wheel (HSB → polar)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --ui: #0b0b0c; --muted:#6b7280; --bg:#ffffff; }
+    body { margin:16px; font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ui); background:var(--bg); }
+    h2 { margin:0 0 6px; }
+    .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+    label { font-weight:600; }
+    input[type="text"], input[type="number"] { padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; min-width:160px; }
+    button { padding:8px 12px; border:1px solid #d1d5db; background:#fafafa; border-radius:8px; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .hint { color:var(--muted); font-size:12px; }
+    #wrap { position:relative; inline-size:min(92vw, 1280px); }
+    #wheel { display:block; width:100%; height:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; }
+    #tooltip {
+      position:absolute; pointer-events:none; background:rgba(17,17,18,.92); color:#fff; padding:8px 10px;
+      border-radius:8px; font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:nowrap;
+      transform:translate3d(-50%,-120%,0); opacity:0; transition:opacity .12s ease;
+    }
+    .muted { color:#cbd5e1; }
+    .k { color:#93c5fd; }  .v { color:#fcd34d; }
+    .hr { height:1px; background:#e5e7eb; margin:12px 0; }
+  </style>
+</head>
+<body>
+  <h2>Swatch Colour Wheel</h2>
+  <div class="hint">Hue → angle · Saturation → radius · Brightness → size/alpha</div>
+
+  <div class="row">
+    <label for="imgBase">Images folder:</label>
+    <input id="imgBase" type="text" value="images/" />
+    <label for="lutUrl">Lookup JSON:</label>
+    <input id="lutUrl" type="text" value="swatch_lookup.json" />
+    <label for="diam">Wheel size (px):</label>
+    <input id="diam" type="number" value="1000" step="50" min="400" max="1600" />
+    <label><input id="guides" type="checkbox" checked /> Show guides</label>
+    <button id="loadBtn">Load / Reload</button>
+  </div>
+
+  <div id="wrap">
+    <canvas id="wheel" width="1000" height="1000"></canvas>
+    <div id="tooltip"></div>
+  </div>
+
+  <div class="hr"></div>
+  <div class="hint">Tip: If some images don’t appear, check the path in “Images folder” and that filenames in the JSON match exactly.</div>
+
+<script src="script.js" defer></script>
+</body>
+</html>
