@@ -4,6 +4,10 @@
   const loadBtn     = document.getElementById("loadSwatches");
   const statusEl    = document.getElementById("status");
 
+  const showThumbEl = document.getElementById("showThumb");
+  const thumb       = document.getElementById("thumb");
+  const tctx        = thumb.getContext("2d");
+
   const sampleFile  = document.getElementById("sampleFile");
   const sampleUrlEl = document.getElementById("sampleUrl");
   const loadSampleUrlBtn = document.getElementById("loadSampleUrl");
@@ -21,12 +25,23 @@
   const octx = out.getContext("2d", { willReadFrequently: true });
   const info = document.getElementById("info");
 
+  // hovered swatch panel
+  const hoverCanvas = document.getElementById("hoverSwatch");
+  const hctx        = hoverCanvas.getContext("2d");
+  const hoverMeta   = document.getElementById("hoverMeta");
+
   let IMG_BASE = "images/";
   let LUT_URL  = "swatch_lookup.json";
 
-  let swatches = [];      // { filename, img, h,s,b, … }
+  let swatches = [];      // { filename, img, h,s,b, dyestuff, pH, mordant, additive, time }
   let sampleImg = null;   // HTMLImageElement
-  let sampleData = null;  // ImageData (for pixel access)
+  let sampleData = null;  // ImageData
+
+  // mosaic state for hover lookup
+  let mosaicRows = [];            // array of tile rows (for CSV + hover)
+  let mosaicGrid = [];            // 2D array [ty][tx] -> row
+  let lastTileSize = 20;
+  let tilesX = 0, tilesY = 0;
 
   // ---------- helpers ----------
   function setStatus(s){ statusEl.textContent = s; }
@@ -36,14 +51,13 @@
   function loadImage(src, useCORS=true){
     return new Promise((res,rej)=>{
       const i = new Image();
-      if (useCORS) i.crossOrigin = "anonymous"; // allow CORS-enabled sources
+      if (useCORS) i.crossOrigin = "anonymous";
       i.onload = ()=> res(i);
       i.onerror = ()=> rej(new Error("load "+src));
       i.src = src;
     });
   }
   function fetchAsBlobURL(url){
-    // Try to fetch image and turn it into a same-origin blob URL (works only if remote allows fetch/CORS)
     return fetch(url, { mode: "cors", cache: "no-store" })
       .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.blob(); })
       .then(blob => URL.createObjectURL(blob));
@@ -106,6 +120,26 @@
     setTimeout(()=> URL.revokeObjectURL(a.href), 2000);
   }
 
+  // ---------- original thumbnail ----------
+  function updateThumbVisibility(){
+    if(!sampleImg){ thumb.style.display = "none"; return; }
+    if(showThumbEl.checked){
+      // fit width of panel (thumb canvas width set by CSS; use device pixels to draw crisp)
+      const maxW = thumb.clientWidth || 220;
+      const ratio = sampleImg.naturalWidth / sampleImg.naturalHeight;
+      const w = Math.max(100, Math.floor(maxW));
+      const h = Math.floor(w / ratio);
+      thumb.width = w;
+      thumb.height = h;
+      tctx.clearRect(0,0,w,h);
+      tctx.drawImage(sampleImg, 0,0, w,h);
+      thumb.style.display = "block";
+    }else{
+      thumb.style.display = "none";
+    }
+  }
+  showThumbEl.addEventListener("change", updateThumbVisibility);
+
   // ---------- load swatches ----------
   loadBtn.addEventListener("click", async ()=>{
     try{
@@ -139,31 +173,24 @@
   sampleFile.addEventListener("change", ()=>{
     const f = sampleFile.files?.[0]; if(!f) return;
     const url = URL.createObjectURL(f);
-    loadSampleFromURL(url, { revoke:true, assumeSafe:true }); // local file = safe for pixels
+    loadSampleFromURL(url, { revoke:true, assumeSafe:true });
   });
 
   loadSampleUrlBtn.addEventListener("click", ()=>{
     const url = sampleUrlEl.value.trim(); if(!url) return;
-    // Try CORS image load first (with crossOrigin=anonymous)
     loadSampleFromURL(url, { revoke:false, assumeSafe:false });
   });
 
   async function loadSampleFromURL(url, { revoke=false, assumeSafe=false } = {}){
     try{
-      // Attempt direct image load with CORS enabled
       let img = await loadImage(url, /*useCORS*/ true).catch(()=>null);
-
-      // If that failed OR we suspect tainting, try fetch→blob→objectURL (still requires CORS to allow fetch)
       let blobURL;
       if(!img || !assumeSafe){
         try{
           blobURL = await fetchAsBlobURL(url);
           img = await loadImage(blobURL, /*useCORS*/ false);
-        }catch(e){
-          // ignore; we may still have the direct CORS image loaded
-        }
+        }catch(e){ /* ignore */ }
       }
-
       if(!img) throw new Error("Could not load image (CORS or network).");
 
       sampleImg = img;
@@ -172,7 +199,6 @@
       octx.clearRect(0,0,w,h);
       octx.drawImage(img, 0,0);
 
-      // Try to get pixels; if security error, show helpful message instead of generic alert
       try{
         sampleData = octx.getImageData(0,0,w,h);
         info.textContent = `Sample loaded: ${w}×${h}px (pixels readable)`;
@@ -180,14 +206,16 @@
         sampleData = null;
         info.textContent =
           "Sample loaded, but pixels are not readable due to CORS. " +
-          "Use the file picker or a CORS-enabled URL (server must send Access-Control-Allow-Origin).";
+          "Use the file picker or a CORS-enabled URL.";
       }
 
-      // Revoke blob URL if used
+      updateThumbVisibility();
+
       if (blobURL) setTimeout(()=> URL.revokeObjectURL(blobURL), 1500);
       if (revoke)  setTimeout(()=> URL.revokeObjectURL(url), 1500);
     }catch(e){
       info.textContent = "Could not load sample image (check URL/CORS or use file picker).";
+      updateThumbVisibility();
     }
   }
 
@@ -205,12 +233,14 @@
     if(!swatches.length){ alert("Load swatches first."); return; }
     if(!sampleImg){ alert("Load a sample image first."); return; }
     if(!sampleData){
-      alert("This image is from a source that blocks pixel access (CORS). Please use the file picker or a CORS-enabled URL.");
+      alert("This image blocks pixel access (CORS). Use file picker or a CORS-enabled URL.");
       return;
     }
 
     const wH = Number(wHsl.value), wB = Number(wBsl.value), wS = Number(wSsl.value);
     const tile = Math.max(4, Math.min(200, parseInt(tileEl.value,10) || 20));
+    lastTileSize = tile;
+
     const W = sampleData.width, H = sampleData.height;
 
     octx.clearRect(0,0,out.width,out.height);
@@ -239,13 +269,25 @@
             filename: best.filename,
             swatchH: best.h, swatchS: best.s, swatchB: best.b,
             dyestuff: best.dyestuff, pH: best.pH, mordant: best.mordant, additive: best.additive, time: best.time,
-            score: bestScore
+            score: bestScore,
+            img: best.img // keep for hover rendering
           });
         }
       }
     }
 
-    info.textContent = `Rendered mosaic: ${Math.ceil(W/tile)}×${Math.ceil(H/tile)} tiles (${rows.length} tiles)`;
+    // build hover lookup grid
+    tilesX = Math.ceil(W / tile);
+    tilesY = Math.ceil(H / tile);
+    mosaicRows = rows;
+    mosaicGrid = Array.from({length: tilesY}, ()=> Array(tilesX).fill(null));
+    for(const r of rows){
+      if (r.ty < tilesY && r.tx < tilesX){
+        mosaicGrid[r.ty][r.tx] = r;
+      }
+    }
+
+    info.textContent = `Rendered mosaic: ${tilesX}×${tilesY} tiles (${rows.length} tiles)`;
     savePNG.disabled = false;
     saveCSV.disabled = false;
 
@@ -259,4 +301,59 @@
       downloadBlob("mosaic_tile_to_swatch.csv", "text/csv", csv);
     };
   });
+
+  // ---------- hover logic (tile -> swatch panel) ----------
+  out.addEventListener("mousemove", (e)=>{
+    if(!mosaicGrid.length) return;
+    const rect = out.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const tx = Math.floor(mx / lastTileSize);
+    const ty = Math.floor(my / lastTileSize);
+    if (tx < 0 || ty < 0 || tx >= tilesX || ty >= tilesY) { clearHover(); return; }
+    const row = mosaicGrid[ty]?.[tx];
+    if (!row) { clearHover(); return; }
+    renderHover(row);
+  });
+  out.addEventListener("mouseleave", clearHover);
+
+  function clearHover(){
+    hctx.clearRect(0,0,hoverCanvas.width,hoverCanvas.height);
+    hoverMeta.innerHTML =
+      `<div class="datarow"><b>File:</b> —</div>
+       <div class="datarow"><b>Dye:</b> —</div>
+       <div class="datarow"><b>pH:</b> —</div>
+       <div class="datarow"><b>Mordant:</b> —</div>
+       <div class="datarow"><b>Additive:</b> —</div>
+       <div class="datarow"><b>Time:</b> —</div>
+       <div class="sep"></div>
+       <div class="datarow"><b>H:</b> — <b>S:</b> — <b>B:</b> —</div>
+       <div class="datarow"><b>Score:</b> —</div>
+       <small class="subtle">Move cursor over mosaic.</small>`;
+  }
+
+  function renderHover(row){
+    // draw the swatch square-cropped into the hover canvas
+    hctx.clearRect(0,0,hoverCanvas.width,hoverCanvas.height);
+    const img = row.img;
+    const side = Math.min(img.width, img.height);
+    const sx = (img.width - side)/2, sy = (img.height - side)/2;
+    hctx.imageSmoothingEnabled = true;
+    hctx.drawImage(img, sx, sy, side, side, 0, 0, hoverCanvas.width, hoverCanvas.height);
+
+    hoverMeta.innerHTML =
+      `<div class="datarow"><b>File:</b> ${row.filename}</div>
+       <div class="datarow"><b>Dye:</b> ${row.dyestuff}</div>
+       <div class="datarow"><b>pH:</b> ${row.pH}</div>
+       <div class="datarow"><b>Mordant:</b> ${row.mordant}</div>
+       <div class="datarow"><b>Additive:</b> ${row.additive}</div>
+       <div class="datarow"><b>Time:</b> ${row.time}</div>
+       <div class="sep"></div>
+       <div class="datarow"><b>H:</b> ${row.swatchH.toFixed(2)}  <b>S:</b> ${row.swatchS.toFixed(2)}  <b>B:</b> ${row.swatchB.toFixed(2)}</div>
+       <div class="datarow"><b>Score:</b> ${row.score.toFixed(3)}</div>`;
+  }
+
+  // ---------- init ----------
+  function updateThumbOnResize(){ if(showThumbEl.checked) updateThumbVisibility(); }
+  window.addEventListener("resize", updateThumbOnResize);
 })();
