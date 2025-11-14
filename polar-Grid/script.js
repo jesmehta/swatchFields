@@ -1,37 +1,54 @@
-/* Swatch Colour Wheel (vanilla JS)
-   - Reads swatch_lookup.json (from Script 1)
-   - Preloads all swatch images
-   - Places each by HSB (Hue→angle, Sat→radius, Bright→size/alpha)
-   - Hover to see details
+/* Swatch Colour Wheel — Zoom + Preview (vanilla JS)
+   - HSB → polar placement
+   - Mouse wheel / slider zoom, drag-to-pan
+   - Large preview on hover (right panel)
 */
 (() => {
-  // ---------- UI elements ----------
+  // ---------- UI ----------
   const imgBaseEl = document.getElementById("imgBase");
   const lutUrlEl  = document.getElementById("lutUrl");
   const diamEl    = document.getElementById("diam");
   const guidesEl  = document.getElementById("guides");
   const loadBtn   = document.getElementById("loadBtn");
-  const canvas    = document.getElementById("wheel");
-  const tooltip   = document.getElementById("tooltip");
-  const ctx       = canvas.getContext("2d", { willReadFrequently: true });
 
-  // ---------- Config (mapped from UI) ----------
-  let IMG_BASE = "imagesLRC/";
+  const zoomSlider = document.getElementById("zoom");
+  const zoomVal    = document.getElementById("zoomVal");
+  const sizeSlider = document.getElementById("sizeScale");
+  const sizeVal    = document.getElementById("sizeVal");
+  const resetBtn   = document.getElementById("resetView");
+
+  const canvas  = document.getElementById("wheel");
+  const ctx     = canvas.getContext("2d", { willReadFrequently: true });
+
+  const big     = document.getElementById("big");
+  const bctx    = big.getContext("2d", { willReadFrequently: true });
+  const meta    = document.getElementById("meta");
+
+  // ---------- Config ----------
+  let IMG_BASE = "images/";
   let LUT_URL  = "swatch_lookup.json";
   let DIAM     = 1000;
 
-  // Visual mapping
-  const INNER_R   = 70;    // radius at S=0
-  const OUTER_R   = () => Math.floor(DIAM * 0.47); // at S=100 (adaptive)
-  const MIN_SIZE  = 18;    // at B=0
-  const MAX_SIZE  = 46;    // at B=100
-  const MIN_ALPHA = 0.35;  // alpha multiplier at B=0
-  const MAX_ALPHA = 1.00;  // alpha multiplier at B=100
+  // Base visual mapping (before size scale)
+  const INNER_R   = 70;
+  const OUTER_R   = () => Math.floor(DIAM * 0.47);
+  const BASE_MIN_SIZE = 18;
+  const BASE_MAX_SIZE = 46;
+  const MIN_ALPHA = 0.35;
+  const MAX_ALPHA = 1.0;
+
+  // ---------- View transform (pan/zoom) ----------
+  const view = {
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+  };
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
 
   // ---------- State ----------
-  let entries = [];  // parsed LUT entries with HSB + meta
-  let sprites = [];  // {img, h,s,b, x,y, r, theta, size, meta}
-  let dpr      = Math.max(1, window.devicePixelRatio || 1);
+  let entries = [];  // normalized LUT
+  let sprites = [];  // laid out at world coords (wheel-centered)
+  let sizeScale = 1; // multiplies sprite size
   let hoverIdx = -1;
 
   // ---------- Helpers ----------
@@ -43,47 +60,46 @@
 
   function setCanvasSize(px) {
     DIAM = px|0;
-    const css = DIAM;              // CSS pixels
-    const real = Math.round(css * dpr); // backing store
+    const css = DIAM, real = Math.round(css * dpr);
     canvas.style.width = css + "px";
     canvas.style.height = css + "px";
-    canvas.width = real;
-    canvas.height = real;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+    canvas.width = real; canvas.height = real;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    resetView(); // keep center on resize
   }
 
-  function readUI() {
-    IMG_BASE = imgBaseEl.value.trim();
-    LUT_URL  = lutUrlEl.value.trim();
-    setCanvasSize(parseInt(diamEl.value, 10) || 1000);
+  function resetView() {
+    view.scale = Number(zoomSlider.value) || 1;
+    view.offsetX = 0;
+    view.offsetY = 0;
+    draw();
   }
 
-  // ---------- Loading ----------
+  // ---------- Loaders ----------
   async function loadJSON(url) {
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
-
   function loadImage(src) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve,reject) => {
       const img = new Image();
-      // If assets are same-origin (Live Server), this is fine. If cross-origin, uncomment:
-      // img.crossOrigin = "anonymous";
       img.onload = () => resolve(img);
-      img.onerror = (e) => reject(new Error(`Failed to load ${src}`));
+      img.onerror = () => reject(new Error("Failed " + src));
       img.src = src;
     });
   }
 
+  // ---------- App ----------
   async function loadAll() {
-    readUI();
+    IMG_BASE = imgBaseEl.value.trim();
+    LUT_URL  = lutUrlEl.value.trim();
+    setCanvasSize(parseInt(diamEl.value, 10) || 1000);
 
-    // 1) get LUT
+    // 1) LUT
     let lut = await loadJSON(LUT_URL);
     if (!Array.isArray(lut)) lut = Object.values(lut);
 
-    // 2) normalize & filter valid HSB
     entries = lut.map(r => ({
       filename: r.filename,
       h: Number(r.h),
@@ -96,66 +112,67 @@
       time: r.time
     })).filter(r => Number.isFinite(r.h) && Number.isFinite(r.s) && Number.isFinite(r.b));
 
-    // 3) preload images
-    const loads = entries.map(e => loadImage(IMG_BASE + e.filename).then(img => ({...e, img})).catch(() => null));
+    // 2) Preload images
+    const loads = entries.map(e => loadImage(IMG_BASE + e.filename).then(img => ({...e, img})).catch(()=>null));
     const loaded = (await Promise.all(loads)).filter(Boolean);
 
-    // 4) layout
+    // 3) Layout at world coords (center 0,0)
     sprites = layout(loaded);
 
-    // 5) draw
+    // 4) Draw
     draw();
   }
 
-  // ---------- Layout & Draw ----------
   function layout(list) {
-    const cx = DIAM/2, cy = DIAM/2;
     const outR = OUTER_R();
     const arr = [];
-
     for (const e of list) {
       const h = ((e.h % 360) + 360) % 360;
       const s = clamp(e.s, 0, 100);
       const b = clamp(e.b, 0, 100);
 
-      const theta = toRad(h - 90); // rotate so 0° is at top
+      const theta = toRad(h - 90);
       const r     = Math.round(map(s, 0, 100, INNER_R, outR));
-      const x     = cx + r * Math.cos(theta);
-      const y     = cy + r * Math.sin(theta);
+      const x     = r * Math.cos(theta);
+      const y     = r * Math.sin(theta);
 
-      const size  = map(b, 0, 100, MIN_SIZE, MAX_SIZE);
+      const size  = map(b, 0, 100, BASE_MIN_SIZE, BASE_MAX_SIZE);
       arr.push({
-        img: e.img, h, s, b, theta, r, x, y, size,
+        img: e.img, h, s, b, theta, r, x, y, baseSize: size,
         meta: {
           filename: e.filename, dyestuff: e.dyestuff, pH: e.pH,
           mordant: e.mordant, additive: e.additive, time: e.time
         }
       });
     }
-
-    // draw inner → outer so farther ones don’t occlude inner
+    // inner → outer
     arr.sort((a,b) => a.r - b.r);
     return arr;
   }
 
+  // ---------- Drawing ----------
+  function applyView() {
+    ctx.translate(DIAM/2 + view.offsetX, DIAM/2 + view.offsetY);
+    ctx.scale(view.scale, view.scale);
+  }
+
   function clear() {
-    ctx.save();
-    ctx.setTransform(dpr,0,0,dpr,0,0); // ensure CSS pixel coords
+    ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr);
-    ctx.restore();
   }
 
   function drawGuides() {
     if (!guidesEl.checked) return;
-    const cx = DIAM/2, cy = DIAM/2, outR = OUTER_R();
+    const outR = OUTER_R();
 
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.lineWidth = 1;
-    // saturation rings
+    applyView();
+
+    // rings
+    ctx.lineWidth = 1 / view.scale;
     for (let S=0; S<=100; S+=20) {
       const r = map(S, 0,100, INNER_R, outR);
-      ctx.strokeStyle = (S%50===0) ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.12)";
+      ctx.strokeStyle = (S%50===0) ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.13)";
       ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
     }
     // hue ticks
@@ -166,45 +183,41 @@
       const x2 = (outR+14)*Math.cos(t), y2 = (outR+14)*Math.sin(t);
       ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
     }
-    // title
-    ctx.fillStyle = "#111";
-    ctx.font = "14px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("HSB Colour Wheel", 0, outR + 34);
+
     ctx.restore();
   }
 
   function drawSprites() {
-    for (const s of sprites) {
+    ctx.save();
+    applyView();
+
+    for (let i=0;i<sprites.length;i++) {
+      const s = sprites[i];
+      const size = s.baseSize * sizeScale;
       const a = lerp(MIN_ALPHA, MAX_ALPHA, s.b/100);
-      // shadow
-      // ctx.save();
-      // ctx.globalAlpha = 0.20;
-      // ctx.beginPath();
-      // ctx.arc(s.x+2, s.y+2, (s.size+6)/2, 0, Math.PI*2);
-      // ctx.fillStyle = "black";
-      // ctx.fill();
-      // ctx.restore();
-      if (s === sprites[hoverIdx]) {
+
+      // hover glow
+      if (i === hoverIdx) {
         ctx.save();
-        ctx.globalAlpha = 0.15;
+        ctx.globalAlpha = 0.25;
         ctx.beginPath();
-        ctx.arc(s.x+2, s.y+2, (s.size+6)/2, 0, Math.PI*2);
-        ctx.fillStyle = "black";
+        ctx.arc(s.x, s.y, (size+8)/2, 0, Math.PI*2);
+        ctx.fillStyle = "#000";
         ctx.fill();
         ctx.restore();
       }
 
-
-      // sprite (cover into square)
+      // draw image cropped square, scaled to size
       const w = s.img.width, h = s.img.height;
-      const side = Math.min(w,h);
-      const sx = (w - side)/2, sy = (h - side)/2;
+      const side = Math.min(w,h), sx = (w-side)/2, sy=(h-side)/2;
+
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.drawImage(s.img, sx, sy, side, side, s.x - s.size/2, s.y - s.size/2, s.size, s.size);
+      ctx.drawImage(s.img, sx, sy, side, side, s.x - size/2, s.y - size/2, size, size);
       ctx.restore();
     }
+
+    ctx.restore();
   }
 
   function draw() {
@@ -213,65 +226,150 @@
     drawSprites();
   }
 
-  // ---------- Hover tooltip ----------
-  canvas.addEventListener("mousemove", (ev) => {
-    if (!sprites.length) return;
+  // ---------- Hit test in world coords ----------
+  function screenToWorld(mx, my) {
+    // CSS px → world coords centered at (0,0)
     const rect = canvas.getBoundingClientRect();
-    // account for CSS pixel coords (we drew using CSS coords)
-    const x = ev.clientX - rect.left;
-    const y = ev.clientY - rect.top;
+    const x = mx - rect.left;
+    const y = my - rect.top;
+    const wx = (x - DIAM/2 - view.offsetX) / view.scale;
+    const wy = (y - DIAM/2 - view.offsetY) / view.scale;
+    return {x: wx, y: wy};
+  }
 
+  function findHover(mx, my) {
+    if (!sprites.length) return -1;
+    const {x,y} = screenToWorld(mx,my);
     let best = -1, bestDist = Infinity;
     for (let i=0;i<sprites.length;i++){
       const s = sprites[i];
+      const size = s.baseSize * sizeScale;
       const d = Math.hypot(x - s.x, y - s.y);
-      if (d < s.size * 0.6 && d < bestDist) { best = i; bestDist = d; }
+      if (d < size * 0.6 && d < bestDist) { best = i; bestDist = d; }
     }
-    hoverIdx = best;
-    if (best === -1) {
-      tooltip.style.opacity = 0;
+    return best;
+  }
+
+  // ---------- Preview panel ----------
+  function drawPreview(idx) {
+    bctx.clearRect(0,0,big.width,big.height);
+    if (idx < 0) {
+      meta.textContent = "Hover a swatch…";
       return;
     }
+    const s = sprites[idx];
+    const pad = 8;
+    const box = Math.min(big.width, big.height) - pad*2;
 
-    const s = sprites[best];
-    tooltip.innerHTML =
-      `<span class="k">file</span>: <span class="v">${s.meta.filename}</span><br/>
-       <span class="k">dye</span>: <span class="v">${s.meta.dyestuff}</span>
-       <span class="k">pH</span>: <span class="v">${s.meta.pH}</span>
-       <span class="k">mordant</span>: <span class="v">${s.meta.mordant}</span><br/>
-       <span class="k">additive</span>: <span class="v">${s.meta.additive}</span>
-       <span class="k">time</span>: <span class="v">${s.meta.time}</span><br/>
-       <span class="k">H</span>: <span class="v">${fmt2(s.h)}</span>
-       <span class="k">S</span>: <span class="v">${fmt2(s.s)}</span>
-       <span class="k">B</span>: <span class="v">${fmt2(s.b)}</span>`;
-    tooltip.style.left = `${s.x}px`;
-    tooltip.style.top  = `${s.y}px`;
-    tooltip.style.opacity = 1;
+    // crop square
+    const w = s.img.width, h = s.img.height;
+    const side = Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
+
+    // draw image
+    bctx.save();
+    bctx.imageSmoothingEnabled = true;
+    bctx.drawImage(s.img, sx, sy, side, side, pad, pad, box, box);
+    bctx.restore();
+
+    // meta
+    meta.innerHTML =
+      `<div><b>File</b>: ${s.meta.filename}</div>
+       <div><b>Dye</b>: ${s.meta.dyestuff}  <b>pH</b>: ${s.meta.pH}</div>
+       <div><b>Mordant</b>: ${s.meta.mordant}</div>
+       <div><b>Additive</b>: ${s.meta.additive}  <b>Time</b>: ${s.meta.time}</div>
+       <div class="sep" style="margin:8px 0;"></div>
+       <div><b>H</b>: ${fmt2(s.h)}  <b>S</b>: ${fmt2(s.s)}  <b>B</b>: ${fmt2(s.b)}</div>`;
+  }
+
+  // ---------- Events ----------
+  canvas.addEventListener("mousemove", (ev) => {
+    const idx = findHover(ev.clientX, ev.clientY);
+    if (idx !== hoverIdx) {
+      hoverIdx = idx;
+      draw();
+      drawPreview(hoverIdx);
+    }
+  });
+  canvas.addEventListener("mouseleave", () => {
+    hoverIdx = -1; draw(); drawPreview(-1);
   });
 
-  canvas.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; });
+  // Drag to pan
+  let dragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener("mousedown", (e) => {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener("mouseup", ()=> dragging=false);
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    view.offsetX += dx;
+    view.offsetY += dy;
+    draw();
+  });
 
-  // ---------- Controls ----------
+  // Wheel zoom (cursor-centered)
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = (e.deltaY < 0) ? 1.1 : 1/1.1;
+    zoomAt(e.clientX, e.clientY, factor);
+  }, { passive:false });
+
+  function zoomAt(mx, my, factor) {
+    // clamp scale
+    const newScale = clamp(view.scale * factor, 0.5, 4);
+    factor = newScale / view.scale;
+    // anchor at cursor: adjust offsets so world point under cursor stays under cursor
+    const rect = canvas.getBoundingClientRect();
+    const cx = mx - rect.left - DIAM/2 - view.offsetX;
+    const cy = my - rect.top  - DIAM/2 - view.offsetY;
+    view.offsetX -= cx * (factor - 1);
+    view.offsetY -= cy * (factor - 1);
+    view.scale = newScale;
+
+    // sync slider
+    zoomSlider.value = view.scale.toFixed(2);
+    zoomVal.textContent = `${view.scale.toFixed(2)}×`;
+    draw();
+  }
+
+  // Sliders / controls
+  zoomSlider.addEventListener("input", () => {
+    const target = Number(zoomSlider.value);
+    // zoom at center
+    const center = canvas.getBoundingClientRect();
+    zoomAt(center.left + DIAM/2, center.top + DIAM/2, target / view.scale);
+  });
+  sizeSlider.addEventListener("input", () => {
+    sizeScale = Number(sizeSlider.value);
+    sizeVal.textContent = `${sizeScale.toFixed(2)}×`;
+    draw();
+  });
+  resetBtn.addEventListener("click", () => {
+    zoomSlider.value = "1.00";
+    zoomVal.textContent = "1.00×";
+    sizeSlider.value = "1.00";
+    sizeVal.textContent = "1.00×";
+    sizeScale = 1;
+    resetView();
+  });
+
   loadBtn.addEventListener("click", () => {
-    tooltip.style.opacity = 0;
     loadAll().catch(err => {
-      tooltip.style.opacity = 0;
       console.error(err);
-      alert(`Failed to load: ${err.message}`);
+      alert("Load failed: " + err.message);
     });
   });
 
-  // Initial draw (empty guides) & auto-load once
-  setCanvasSize(parseInt(diamEl.value,10) || 1000);
-  // Draw just the guides until data is loaded
-  draw();
-  // Kick off initial load
-  loadAll().catch(err => {
-    console.error(err);
-    // leave guides visible to show UI is alive
-  });
-
-  // Redraw on resize if size input changes
-  diamEl.addEventListener("change", () => { readUI(); draw(); });
-
+  // Initial
+  (function init(){
+    sizeVal.textContent = "1.00×";
+    zoomVal.textContent = "1.00×";
+    setCanvasSize(parseInt(diamEl.value,10) || 1000);
+    // draw empty guides
+    draw();
+    loadAll().catch(console.error);
+  })();
 })();
