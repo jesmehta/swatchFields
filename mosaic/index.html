@@ -1,75 +1,39 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Swatch Mosaic v1.1 — one tile = one swatch</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Swatch Mosaic (v1.1)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    :root { --border:#e5e7eb; }
-    * { box-sizing: border-box; }
-    body { margin:0; font:14px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#0b0b0c; background:#fff; }
-    header { padding:12px 16px; border-bottom:1px solid var(--border); font-weight:600; }
-
-    /* three-column layout: left controls | main canvas | right info */
-    .app {
-      display:grid;
-      grid-template-columns: 320px 1fr 320px;
-      gap:0;
-      height:calc(100vh - 50px);
-    }
-    aside.left  { border-right:1px solid var(--border); padding:12px; overflow:auto; }
-    main        { padding:12px; overflow:auto; }
-    aside.right { border-left:1px solid var(--border); padding:12px; overflow:auto; }
-
-    .row { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
-    input[type="text"], input[type="number"], input[type="range"] {
-      padding:6px 8px; border:1px solid var(--border); border-radius:8px; min-width:120px;
-    }
-    button { padding:8px 12px; border:1px solid var(--border); background:#fafafa; border-radius:8px; cursor:pointer; }
-    .panel { border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:12px; }
-    .pill { font-size:12px; background:#f3f4f6; border:1px solid var(--border); padding:2px 6px; border-radius:999px; }
-    .subtle { color:#6b7280; }
-
-    canvas { max-width:100%; height:auto; border:1px solid var(--border); border-radius:12px; display:block; background:#fff; }
-
-    /* right sidebar panels */
-    .thumbWrap, .hoverWrap { border:1px solid var(--border); border-radius:10px; padding:8px; margin-bottom:12px; }
-    .thumbWrap h4, .hoverWrap h4 { margin:0 0 8px 0; font-size:13px; color:#111; }
-    #thumb { display:none; width:100%; height:auto; border-radius:6px; }
-    #hoverSwatch { width:100%; max-width:180px; height:auto; aspect-ratio:1/1; border-radius:8px; border:1px solid var(--border); background:#fff; }
-    #hoverMeta { font-size:12px; }
-    #hoverMeta b { font-weight:600; }
-    #hoverMeta .sep { margin:6px 0; height:1px; background:var(--border); }
-    .datarow { margin-bottom:4px; }
-    label b { display:inline-block; min-width:120px; }
+    :root { --border:#e5e7eb; --ink:#0b0b0c; --muted:#6b7280; }
+    *{box-sizing:border-box}
+    body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}
+    header{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600}
+    .app{display:grid;grid-template-columns:320px 1fr 320px;height:calc(100vh - 50px)}
+    aside.left{border-right:1px solid var(--border);padding:12px;overflow:auto}
+    main{padding:12px;overflow:auto}
+    aside.right{border-left:1px solid var(--border);padding:12px;overflow:auto}
+    .panel{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px}
+    .row{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+    input[type="number"],input[type="range"],input[type="text"]{padding:6px 8px;border:1px solid var(--border);border-radius:8px;min-width:120px}
+    button{padding:8px 12px;border:1px solid var(--border);background:#fafafa;border-radius:8px;cursor:pointer}
+    .pill{font-size:12px;background:#f3f4f6;border:1px solid var(--border);padding:2px 6px;border-radius:999px}
+    .subtle{color:var(--muted)}
+    canvas{max-width:100%;height:auto;border:1px solid var(--border);border-radius:12px;display:block;background:#fff}
+    .thumbWrap,.hoverWrap{border:1px solid var(--border);border-radius:10px;padding:8px;margin-bottom:12px}
+    .thumbWrap h4,.hoverWrap h4{margin:0 0 8px 0;font-size:13px}
+    #thumb{display:none;width:100%;height:auto;border-radius:6px}
+    #hoverSwatch{width:100%;max-width:180px;height:auto;aspect-ratio:1/1;border-radius:8px;border:1px solid var(--border);background:#fff}
+    #hoverMeta{font-size:12px}
+    #hoverMeta .sep{margin:6px 0;height:1px;background:var(--border)}
   </style>
 </head>
 <body>
-  <header>Swatch Mosaic v1.1 — One tile = One swatch (traceable)</header>
+  <header>Swatch Mosaic — One tile = One swatch</header>
 
   <div class="app">
     <!-- LEFT: controls -->
     <aside class="left">
-      <div class="panel">
-        <div class="row">
-          <label><b>Images folder</b></label>
-          <input id="imgBase" type="text" value="images/" />
-        </div>
-        <div class="row">
-          <label><b>Lookup JSON</b></label>
-          <input id="lutUrl" type="text" value="swatch_lookup.json" />
-        </div>
-        <div class="row">
-          <button id="loadSwatches">Load swatches</button>
-          <span id="status" class="pill">idle</span>
-        </div>
-        <div class="row">
-          <label><b>Show original thumb</b></label>
-          <input id="showThumb" type="checkbox" />
-        </div>
-        <small class="subtle">Uses your existing <code>swatch_lookup.json</code> (filename,h,s,b,…)</small>
-      </div>
-
       <div class="panel">
         <div class="row">
           <label><b>Sample image</b></label>
@@ -77,7 +41,7 @@
         </div>
         <div class="row">
           <label><b>…or URL</b></label>
-          <input id="sampleUrl" type="text" placeholder="https://…" />
+          <input id="sampleUrl" type="text" placeholder="https://(CORS-enabled image)" />
           <button id="loadSampleUrl">Load</button>
         </div>
         <div class="row">
@@ -93,10 +57,19 @@
       </div>
 
       <div class="panel">
+        <div class="row"><button id="loadSwatches">Load swatches</button><span id="status" class="pill">idle</span></div>
         <div class="row"><button id="render">Render mosaic</button></div>
         <div class="row">
           <button id="downloadPNG" disabled>Download PNG</button>
           <button id="downloadCSV" disabled>Download CSV (tile→swatch)</button>
+        </div>
+        <small class="subtle">Uses hardcoded <code>imagesSuperCrop/</code> and <code>swatch_lookup.json</code></small>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <label><b>Show original thumb</b></label>
+          <input id="showThumb" type="checkbox" />
         </div>
       </div>
     </aside>
@@ -120,15 +93,15 @@
         <div class="row" style="align-items:flex-start; gap:12px;">
           <canvas id="hoverSwatch" width="180" height="180"></canvas>
           <div id="hoverMeta">
-            <div class="datarow"><b>File:</b> —</div>
-            <div class="datarow"><b>Dye:</b> —</div>
-            <div class="datarow"><b>pH:</b> —</div>
-            <div class="datarow"><b>Mordant:</b> —</div>
-            <div class="datarow"><b>Additive:</b> —</div>
-            <div class="datarow"><b>Time:</b> —</div>
+            <div><b>File:</b> —</div>
+            <div><b>Dye:</b> —</div>
+            <div><b>pH:</b> —</div>
+            <div><b>Mordant:</b> —</div>
+            <div><b>Additive:</b> —</div>
+            <div><b>Time:</b> —</div>
             <div class="sep"></div>
-            <div class="datarow"><b>H:</b> — <b>S:</b> — <b>B:</b> —</div>
-            <div class="datarow"><b>Score:</b> —</div>
+            <div><b>H:</b> — <b>S:</b> — <b>B:</b> —</div>
+            <div><b>Score:</b> —</div>
             <small class="subtle">Move cursor over mosaic.</small>
           </div>
         </div>
