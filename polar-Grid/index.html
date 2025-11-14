@@ -12,7 +12,7 @@
     .app { display:grid; grid-template-columns: 280px 1fr 360px; height:100vh; }
     aside { border-right:1px solid var(--border); padding:12px; overflow:auto; }
     main  { border-right:1px solid var(--border); padding:12px; display:flex; flex-direction:column; gap:8px; overflow:auto; }
-    .right { padding:12px; overflow:auto; }
+    .right { padding:12px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
     .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
     label { font-weight:600; }
     input[type="text"], input[type="number"], input[type="range"], select {
@@ -20,7 +20,7 @@
     }
     button { padding:8px 12px; border:1px solid var(--border); background:#fafafa; border-radius:8px; cursor:pointer; }
     .hint { color:var(--muted); font-size:12px; margin:6px 0 12px; }
-    .panel { border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:10px; }
+    .panel { border:1px solid var(--border); border-radius:10px; padding:10px; }
     .filters { display:grid; gap:10px; }
     .fset h4 { margin:0 0 6px; font-size:13px; }
     .fset .opts { max-height:150px; overflow:auto; display:grid; gap:4px; }
@@ -40,30 +40,7 @@
   <div class="app">
     <!-- LEFT SIDEBAR -->
     <aside>
-      <!-- Display mode + view controls -->
-      <div class="panel">
-        <div class="modeRow">
-          <label>Display:</label>
-          <label><input type="radio" name="mode" value="polar" checked /> Polar (HSB wheel)</label>
-          <label><input type="radio" name="mode" value="grid" /> Grid</label>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <label><input id="guides" type="checkbox" checked /> Show guides</label>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <label>Zoom:</label><input id="zoom" type="range" min="0.5" max="4" value="1" step="0.05" />
-          <span id="zoomVal" class="pill">1.00×</span>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <label>Swatch size:</label><input id="sizeScale" type="range" min="0.6" max="1.8" value="1" step="0.05" />
-          <span id="sizeVal" class="pill">1.00×</span>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <button id="resetView">Reset View</button>
-        </div>
-      </div>
-
-      <!-- Filters (above grid params) -->
+      <!-- Filters -->
       <div class="panel" id="filtersPanel">
         <div class="filters">
           <div class="fset"><h4>Dyestuff</h4><div id="f-dyestuff" class="opts"></div></div>
@@ -115,12 +92,35 @@
       <canvas id="wheel" width="1000" height="1000"></canvas>
     </main>
 
-    <!-- RIGHT PREVIEW -->
+    <!-- RIGHT -->
     <div class="right">
-      <div id="preview">
+      <div id="preview" class="panel">
         <canvas id="big" width="340" height="340"></canvas>
         <div class="sep"></div>
         <div id="meta" class="kv">Hover a swatch…</div>
+      </div>
+
+      <!-- Display controls moved here -->
+      <div class="panel">
+        <div class="modeRow">
+          <label>Display:</label>
+          <label><input type="radio" name="mode" value="polar" checked /> Polar (HSB wheel)</label>
+          <label><input type="radio" name="mode" value="grid" /> Grid</label>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <label><input id="guides" type="checkbox" checked /> Show guides</label>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <label>Zoom:</label><input id="zoom" type="range" min="0.5" max="4" value="1" step="0.05" />
+          <span id="zoomVal" class="pill">1.00×</span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <label>Swatch size:</label><input id="sizeScale" type="range" min="0.6" max="1.8" value="1" step="0.05" />
+          <span id="sizeVal" class="pill">1.00×</span>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="resetView">Reset View</button>
+        </div>
       </div>
     </div>
   </div>

@@ -1,6 +1,6 @@
-/* Swatch Browser — Polar/Grid + Filters + Nested axes + Preview */
+/* Swatch Browser — Polar/Grid + Filters + Nested axes + Preview (final) */
 (() => {
-  // UI
+  // -------- UI ELEMENTS --------
   const imgBaseEl   = document.getElementById("imgBase");
   const imgBaseHiEl = document.getElementById("imgBaseHi");
   const lutUrlEl    = document.getElementById("lutUrl");
@@ -35,7 +35,7 @@
   const bctx   = big.getContext("2d", { willReadFrequently: true });
   const meta   = document.getElementById("meta");
 
-  // Config
+  // -------- CONFIG --------
   let IMG_BASE    = "images/";
   let IMG_BASE_HI = "images/";
   let LUT_URL     = "swatch_lookup.json";
@@ -49,19 +49,33 @@
   const view = { scale: 1, offsetX: 0, offsetY: 0 };
   const dpr  = Math.max(1, window.devicePixelRatio || 1);
 
-  // State
-  let entries = [];
-  let sprites = [];
-  let uniq    = {};
-  let filters = {};
-  let mode    = "polar";
-  let sizeScale = 1;
-  let hoverIdx  = -1;
-  const hiCache = new Map();
+  // -------- STATE --------
+  let entries = [];           // LUT rows with H,S,B + metadata (no images)
+  let sprites = [];           // positioned drawables with images
+  let uniq    = {};           // unique values by param
+  let filters = {};           // current filter selections
+  let mode    = "polar";      // "polar" | "grid"
+  let sizeScale = 1;          // user size multiplier
+  let hoverIdx  = -1;         // hovered sprite index
+  const hiCache = new Map();  // fname -> hi-res Image | "loading" | "error"
 
   const PARAMS = ["dyestuff","pH","mordant","additive","time"];
 
-  // Helpers
+  // -------- HELPERS --------
+  const PH_ORDER = ["Acidic","Neutral","Alkaline"];
+  const PH_ANN   = { Acidic:"Acidic (~pH 3)", Neutral:"Neutral (~pH 7)", Alkaline:"Alkaline (~pH 9)" };
+  const displayVal = (param, val) => (param==="pH" ? (PH_ANN[val] || val) : val);
+
+  // Convert time strings to minutes for numeric sorting (12h -> 720)
+  const timeToMinutes = (t) => {
+    if (typeof t !== "string") return 0;
+    const m = t.trim().toLowerCase();
+    if (m.endsWith("h")) return (parseInt(m, 10) || 0) * 60;
+    if (m.endsWith("m")) return (parseInt(m, 10) || 0);
+    const n = parseInt(m.replace(/\D+/g, ""), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   const toRad = (deg)=> (deg % 360) * Math.PI/180;
   const clamp = (v,lo,hi)=> Math.min(hi, Math.max(lo, v));
   const lerp  = (a,b,t)=> a + (b - a) * t;
@@ -82,22 +96,34 @@
     draw();
   }
 
-  async function loadJSON(url){ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }
-  function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("Failed "+src)); i.src=src; }); }
+  async function loadJSON(url){
+    const r=await fetch(url,{cache:"no-store"});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+  function loadImage(src){
+    return new Promise((res,rej)=>{
+      const i=new Image();
+      i.onload=()=>res(i);
+      i.onerror=()=>rej(new Error("Failed "+src));
+      i.src=src;
+    });
+  }
 
   function buildUniques(list){
     uniq = {}; PARAMS.forEach(p=> uniq[p]=[]);
     const seen = {}; PARAMS.forEach(p=> seen[p]=new Set());
     for(const e of list){
-      PARAMS.forEach(p => { if(!seen[p].has(e[p])){ seen[p].add(e[p]); uniq[p].push(e[p]); }});
+      PARAMS.forEach(p => {
+        if(!seen[p].has(e[p])){ seen[p].add(e[p]); uniq[p].push(e[p]); }
+      });
     }
-    // custom order: pH = Acidic → Neutral → Alkaline
-    const PH_ORDER = ["Acidic","Neutral","Alkaline"];
     uniq.dyestuff.sort();
     uniq.pH.sort((a,b)=> PH_ORDER.indexOf(a) - PH_ORDER.indexOf(b));
     uniq.mordant.sort();
     uniq.additive.sort();
-    uniq.time.sort((a,b)=> (parseInt(String(a).replace(/\D+/g,''))||0) - (parseInt(String(b).replace(/\D+/g,''))||0));
+    // important: time sort using minutes (so 12h comes last)
+    uniq.time.sort((a,b)=> timeToMinutes(a) - timeToMinutes(b));
   }
 
   function renderFilters(){
@@ -115,7 +141,7 @@
         const id = `f-${p}-${i}`;
         const lab = document.createElement("label");
         lab.style.whiteSpace="nowrap";
-        lab.innerHTML = `<input type="checkbox" id="${id}" data-param="${p}" data-value="${val}"> ${val}`;
+        lab.innerHTML = `<input type="checkbox" id="${id}" data-param="${p}" data-value="${val}"> ${displayVal(p,val)}`;
         frag.appendChild(lab);
       });
 
@@ -162,9 +188,10 @@
     }
     return true;
   }
-  function filtered(list){ return list.filter(passesFilters); }
-  function metaPack(e){ return { filename:e.filename, dyestuff:e.dyestuff, pH:e.pH, mordant:e.mordant, additive:e.additive, time:e.time }; }
+  const filtered = (list)=> list.filter(passesFilters);
+  const metaPack = (e)=> ({ filename:e.filename, dyestuff:e.dyestuff, pH:e.pH, mordant:e.mordant, additive:e.additive, time:e.time });
 
+  // -------- LAYOUTS --------
   function layoutPolar(list){
     const outR = OUTER_R(); const arr=[];
     for(const e of filtered(list)){
@@ -172,14 +199,14 @@
       const th=toRad(h-90), r=Math.round(map(s,0,100,INNER_R,outR));
       const x=r*Math.cos(th), y=r*Math.sin(th);
       const size=map(b,0,100,BASE_MIN_SIZE,BASE_MAX_SIZE);
-      arr.push({ img: e.img, h, s, b, x, y, baseSize: size, meta: metaPack(e) }); // fixed
+      arr.push({ img: e.img, h, s, b, x, y, baseSize: size, meta: metaPack(e) });
     }
     arr.sort((a,b)=> a.y-b.y);
     layoutPolar._axes=null;
     return arr;
   }
 
-  // Grid with nested inner axes (X', Y')
+  // Grid with optional nested inner axes (X′, Y′)
   function layoutGrid(list){
     const data = filtered(list);
     const X = xAxisSel.value, Y=yAxisSel.value;
@@ -189,12 +216,12 @@
     const xi = new Map(xs.map((v,i)=>[v,i]));
     const yi = new Map(ys.map((v,i)=>[v,i]));
 
-    const pad=60, W=DIAM-pad*2, H=DIAM-pad*2;
+    const pad=70, W=DIAM-pad*2, H=DIAM-pad*2;
     const colW = xs.length ? W/xs.length : W;
     const rowH = ys.length ? H/ys.length : H;
 
-    const innerMap = new Map(); // key "x||y" -> {ixVals, iyVals, ixIndex, iyIndex}
-    function key(xv,yv){ return `${xv}||${yv}`; }
+    const innerMap = new Map();
+    const key = (xv,yv)=> `${xv}||${yv}`;
 
     if (IX || IY){
       for(const e of data){
@@ -212,6 +239,7 @@
       innerMap.forEach(cell=>{
         if(cell.ixVals) cell.ixVals.sort();
         if(cell.iyVals) cell.iyVals.sort((a,b)=>{
+          if (IY === "time") return timeToMinutes(a) - timeToMinutes(b);
           const A=parseInt(String(a).replace(/\D+/g,''))||0;
           const B=parseInt(String(b).replace(/\D+/g,''))||0;
           return A-B;
@@ -251,9 +279,11 @@
         x = cellX + gridPad + (ix + 0.5) * colCW;
         y = cellY + gridPad + (iy + 0.5) * rowRH;
       } else {
-        // small nudge for duplicates
-        const seed = e.filename; let hash=0; for(let i=0;i<seed.length;i++) hash=(hash*131+seed.charCodeAt(i))|0;
-        const ang=(hash>>>0)%360*Math.PI/180; const rad=Math.min(colW,rowH)*0.12*((hash>>>8)%100)/100;
+        // small nudge for duplicates without inner axes
+        const seed = e.filename; let hash=0;
+        for(let i=0;i<seed.length;i++) hash=(hash*131+seed.charCodeAt(i))|0;
+        const ang=(hash>>>0)%360*Math.PI/180;
+        const rad=Math.min(colW,rowH)*0.12*((hash>>>8)%100)/100;
         x = centerX + Math.cos(ang)*rad; y = centerY + Math.sin(ang)*rad;
       }
 
@@ -264,12 +294,16 @@
     return arr;
   }
 
+  // -------- DRAWING --------
   function applyView(){
     ctx.translate(DIAM/2 + view.offsetX, DIAM/2 + view.offsetY);
     ctx.scale(view.scale, view.scale);
     if (mode==="grid"){ ctx.translate(-DIAM/2, -DIAM/2); }
   }
-  function clear(){ ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr); }
+  function clear(){
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr);
+  }
 
   function drawGuidesPolar(){
     if(!guidesEl.checked) return;
@@ -291,29 +325,49 @@
     ctx.restore();
   }
 
+  // Grid lines + axis names + tick labels (with pH annotations)
   function drawGuidesGrid(){
     if(!guidesEl.checked) return;
     const ax = layoutGrid._axes; if(!ax) return;
     const { xs, ys, pad, colW, rowH, X, Y, IX, IY, innerMap } = ax;
 
     ctx.save(); applyView(); ctx.lineWidth = 1/view.scale; ctx.strokeStyle="rgba(0,0,0,0.18)";
-    // verticals
+    // outer grid
     for(let i=0;i<=xs.length;i++){
       const x=pad+i*colW;
       ctx.beginPath(); ctx.moveTo(x,pad); ctx.lineTo(x,pad+ys.length*rowH); ctx.stroke();
     }
-    // horizontals (fixed j++)
     for(let j=0;j<=ys.length;j++){
       const y=pad+j*rowH;
       ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(pad+xs.length*colW, y); ctx.stroke();
     }
 
-    // labels
+    // axis names
     ctx.fillStyle="#111"; ctx.font=(12/view.scale)+"px system-ui";
     ctx.textAlign="center"; ctx.textBaseline="bottom";
-    ctx.fillText(X, pad+(xs.length*colW)/2, pad-6/view.scale);
-    ctx.save(); ctx.translate(pad-16/view.scale, pad+(ys.length*rowH)/2); ctx.rotate(-Math.PI/2);
-    ctx.fillText(Y, 0, 0); ctx.restore();
+    ctx.fillText(X, pad+(xs.length*colW)/2, pad-20/view.scale);
+    ctx.save();
+    ctx.translate(pad-42/view.scale, pad+(ys.length*rowH)/2); // moved left to avoid overlap
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText(Y, 0, 0);
+    ctx.restore();
+
+    // tick labels
+    ctx.fillStyle="#111"; ctx.font=(11/view.scale)+"px system-ui";
+    // X ticks (top)
+    for(let ci=0; ci<xs.length; ci++){
+      const xv = xs[ci];
+      const x = pad + ci*colW + colW/2;
+      ctx.textAlign="center"; ctx.textBaseline="bottom";
+      ctx.fillText(displayVal(X, xv), x, pad-4/view.scale);
+    }
+    // Y ticks (left)
+    for(let rj=0; rj<ys.length; rj++){
+      const yv = ys[rj];
+      const y = pad + rj*rowH + rowH/2;
+      ctx.textAlign="right"; ctx.textBaseline="middle";
+      ctx.fillText(displayVal(Y, yv), pad-8/view.scale, y);
+    }
 
     // inner grid hints
     if (IX || IY){
@@ -361,11 +415,13 @@
       const size = s.baseSize * sizeScale;
       const a = lerp(MIN_ALPHA, MAX_ALPHA, s.b/100);
 
+      // hover-only shadow square
       if (i===hoverIdx){
         const rx=s.x-(size/2)+2, ry=s.y-(size/2)+2;
         fillRoundRect(rx, ry, size+4, size+4, Math.max(3,size*0.08), "black", 0.18);
       }
 
+      // draw square-cropped image
       const w=s.img.width, h=s.img.height;
       const side=Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
       ctx.save(); ctx.globalAlpha=a;
@@ -386,6 +442,7 @@
     drawSprites();
   }
 
+  // -------- INTERACTION --------
   function screenToWorld(mx,my){
     const r = canvas.getBoundingClientRect();
     let x = (mx - r.left - DIAM/2 - view.offsetX) / view.scale;
@@ -436,22 +493,24 @@
 
     meta.innerHTML =
       `<div><b>File</b>: ${s.meta.filename}</div>
-       <div><b>Dye</b>: ${s.meta.dyestuff}  <b>pH</b>: ${s.meta.pH}</div>
+       <div><b>Dye</b>: ${s.meta.dyestuff}  <b>pH</b>: ${displayVal("pH", s.meta.pH)}</div>
        <div><b>Mordant</b>: ${s.meta.mordant}</div>
        <div><b>Additive</b>: ${s.meta.additive}  <b>Time</b>: ${s.meta.time}</div>
        <div class="sep" style="margin:8px 0;"></div>
        <div><b>H</b>: ${fmt2(s.h)}  <b>S</b>: ${fmt2(s.s)}  <b>B</b>: ${fmt2(s.b)}</div>`;
   }
 
-  // Events
+  // mouse hover
   canvas.addEventListener("mousemove",(e)=>{ const i=findHover(e.clientX,e.clientY); if(i!==hoverIdx){ hoverIdx=i; draw(); drawPreview(hoverIdx);} });
   canvas.addEventListener("mouseleave",()=>{ hoverIdx=-1; draw(); drawPreview(-1); });
 
+  // drag to pan
   let dragging=false,lastX=0,lastY=0;
   canvas.addEventListener("mousedown",(e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
   window.addEventListener("mouseup", ()=> dragging=false);
   window.addEventListener("mousemove",(e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; view.offsetX+=dx; view.offsetY+=dy; draw(); });
 
+  // wheel to zoom (cursor-centered)
   canvas.addEventListener("wheel",(e)=>{ e.preventDefault(); const f=(e.deltaY<0)?1.1:1/1.1; zoomAt(e.clientX,e.clientY,f); }, {passive:false});
   function zoomAt(mx,my,factor){
     const newScale = clamp(view.scale*factor, 0.5, 4);
@@ -462,18 +521,23 @@
     view.offsetX -= cx*(factor-1); view.offsetY -= cy*(factor-1);
     view.scale = newScale; zoomSlider.value = view.scale.toFixed(2); zoomVal.textContent = `${view.scale.toFixed(2)}×`; draw();
   }
+
+  // right-side controls
   zoomSlider.addEventListener("input",()=>{ const target=Number(zoomSlider.value); const r=canvas.getBoundingClientRect(); zoomAt(r.left+DIAM/2, r.top+DIAM/2, target/view.scale); });
   sizeSlider.addEventListener("input",()=>{ sizeScale=Number(sizeSlider.value); sizeVal.textContent=`${sizeScale.toFixed(2)}×`; draw(); });
   resetBtn.addEventListener("click",()=>{ zoomSlider.value="1.00"; zoomVal.textContent="1.00×"; sizeSlider.value="1.00"; sizeVal.textContent="1.00×"; sizeScale=1; resetView(); });
 
+  // mode change
   modeEls.forEach(r=> r.addEventListener("change",()=>{
     mode = modeEls.find(e=>e.checked)?.value || "polar";
     setGridPanelVisibility();
     relayoutAndDraw();
   }));
 
+  // -------- LIFECYCLE --------
   function relayoutAndDraw(){
     if(!entries.length) return;
+    // keep already loaded images
     const imgBy = new Map(sprites.map(s=> [s.meta.filename, s.img]));
     const withImg = entries.map(e=> ({...e, img: imgBy.get(e.filename) || null}));
     const need = filtered(withImg).filter(e=> !e.img);
@@ -492,9 +556,13 @@
     LUT_URL     = lutUrlEl.value.trim();
     setCanvasSize(parseInt(diamEl.value,10) || 1000);
 
-    let lut = await loadJSON(LUT_URL); if(!Array.isArray(lut)) lut = Object.values(lut);
+    let lut = await loadJSON(LUT_URL);
+    if(!Array.isArray(lut)) lut = Object.values(lut);
+
+    // normalize entries
     entries = lut.map(r=> ({
-      filename:r.filename, h:Number(r.h), s:Number(r.s), b:Number(r.b),
+      filename:r.filename,
+      h:Number(r.h), s:Number(r.s), b:Number(r.b),
       dyestuff:r.dyestuff, pH:r.pH, mordant:r.mordant, additive:r.additive, time:r.time
     })).filter(r=> Number.isFinite(r.h) && Number.isFinite(r.s) && Number.isFinite(r.b));
 
@@ -510,7 +578,7 @@
     draw(); drawPreview(-1);
   }
 
-  // Init
+  // init
   (function init(){
     sizeVal.textContent="1.00×"; zoomVal.textContent="1.00×";
     setCanvasSize(parseInt(diamEl.value,10) || 1000);
