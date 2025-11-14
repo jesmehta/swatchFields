@@ -27,6 +27,7 @@
   const yAxisSel = document.getElementById("yAxis");
   const innerXSel= document.getElementById("innerX");
   const innerYSel= document.getElementById("innerY");
+  const gridPanel= document.getElementById("gridPanel");
 
   const canvas = document.getElementById("wheel");
   const ctx    = canvas.getContext("2d", { willReadFrequently: true });
@@ -90,7 +91,12 @@
     for(const e of list){
       PARAMS.forEach(p => { if(!seen[p].has(e[p])){ seen[p].add(e[p]); uniq[p].push(e[p]); }});
     }
-    uniq.dyestuff.sort(); uniq.pH.sort(); uniq.mordant.sort(); uniq.additive.sort();
+    // custom order: pH = Acidic → Neutral → Alkaline
+    const PH_ORDER = ["Acidic","Neutral","Alkaline"];
+    uniq.dyestuff.sort();
+    uniq.pH.sort((a,b)=> PH_ORDER.indexOf(a) - PH_ORDER.indexOf(b));
+    uniq.mordant.sort();
+    uniq.additive.sort();
     uniq.time.sort((a,b)=> (parseInt(String(a).replace(/\D+/g,''))||0) - (parseInt(String(b).replace(/\D+/g,''))||0));
   }
 
@@ -143,6 +149,10 @@
     [xAxisSel,yAxisSel,innerXSel,innerYSel].forEach(el=> el.addEventListener("change", relayoutAndDraw));
   }
 
+  function setGridPanelVisibility(){
+    gridPanel.style.display = (mode === "grid") ? "block" : "none";
+  }
+
   function passesFilters(e){
     for(const p of PARAMS){
       const sel = filters[p];
@@ -153,7 +163,6 @@
     return true;
   }
   function filtered(list){ return list.filter(passesFilters); }
-
   function metaPack(e){ return { filename:e.filename, dyestuff:e.dyestuff, pH:e.pH, mordant:e.mordant, additive:e.additive, time:e.time }; }
 
   function layoutPolar(list){
@@ -163,7 +172,7 @@
       const th=toRad(h-90), r=Math.round(map(s,0,100,INNER_R,outR));
       const x=r*Math.cos(th), y=r*Math.sin(th);
       const size=map(b,0,100,BASE_MIN_SIZE,BASE_MAX_SIZE);
-      arr.push({img:e.img,h:s,b, x,y, baseSize:size, meta:metaPack(e)});
+      arr.push({ img: e.img, h, s, b, x, y, baseSize: size, meta: metaPack(e) }); // fixed
     }
     arr.sort((a,b)=> a.y-b.y);
     layoutPolar._axes=null;
@@ -184,13 +193,12 @@
     const colW = xs.length ? W/xs.length : W;
     const rowH = ys.length ? H/ys.length : H;
 
-    // Build inner unique maps per (X,Y) cell to keep grids tight
-    const innerMap = new Map(); // key "x|y" -> {ixVals, iyVals, ixIndex, iyIndex}
-    function cellKey(xv,yv){ return `${xv}||${yv}`; }
+    const innerMap = new Map(); // key "x||y" -> {ixVals, iyVals, ixIndex, iyIndex}
+    function key(xv,yv){ return `${xv}||${yv}`; }
 
     if (IX || IY){
       for(const e of data){
-        const k = cellKey(e[X], e[Y]);
+        const k = key(e[X], e[Y]);
         if(!innerMap.has(k)){
           innerMap.set(k, {
             ixVals: IX ? [] : null, iyVals: IY ? [] : null,
@@ -201,16 +209,13 @@
         if (IX && !cell.ixSeen.has(e[IX])) { cell.ixSeen.add(e[IX]); cell.ixVals.push(e[IX]); }
         if (IY && !cell.iySeen.has(e[IY])) { cell.iySeen.add(e[IY]); cell.iyVals.push(e[IY]); }
       }
-      // sort for readability
       innerMap.forEach(cell=>{
         if(cell.ixVals) cell.ixVals.sort();
         if(cell.iyVals) cell.iyVals.sort((a,b)=>{
-          // keep time like 30m,60m in order
           const A=parseInt(String(a).replace(/\D+/g,''))||0;
           const B=parseInt(String(b).replace(/\D+/g,''))||0;
           return A-B;
         });
-        // build index maps
         if(cell.ixVals) cell.ixIndex = new Map(cell.ixVals.map((v,i)=>[v,i]));
         if(cell.iyVals) cell.iyIndex = new Map(cell.iyVals.map((v,i)=>[v,i]));
       });
@@ -229,7 +234,7 @@
       let x=centerX, y=centerY;
 
       if (IX || IY){
-        const cell = innerMap.get(cellKey(e[X], e[Y]));
+        const cell = innerMap.get(key(e[X], e[Y]));
         const innerCols = cell?.ixVals?.length || 1;
         const innerRows = cell?.iyVals?.length || 1;
 
@@ -246,7 +251,7 @@
         x = cellX + gridPad + (ix + 0.5) * colCW;
         y = cellY + gridPad + (iy + 0.5) * rowRH;
       } else {
-        // small nudge to separate exact duplicates
+        // small nudge for duplicates
         const seed = e.filename; let hash=0; for(let i=0;i<seed.length;i++) hash=(hash*131+seed.charCodeAt(i))|0;
         const ang=(hash>>>0)%360*Math.PI/180; const rad=Math.min(colW,rowH)*0.12*((hash>>>8)%100)/100;
         x = centerX + Math.cos(ang)*rad; y = centerY + Math.sin(ang)*rad;
@@ -290,10 +295,18 @@
     if(!guidesEl.checked) return;
     const ax = layoutGrid._axes; if(!ax) return;
     const { xs, ys, pad, colW, rowH, X, Y, IX, IY, innerMap } = ax;
+
     ctx.save(); applyView(); ctx.lineWidth = 1/view.scale; ctx.strokeStyle="rgba(0,0,0,0.18)";
-    // outer grid
-    for(let i=0;i<=xs.length;i++){ const x=pad+i*colW; ctx.beginPath(); ctx.moveTo(x,pad); ctx.lineTo(x,pad+ys.length*rowH); ctx.stroke(); }
-    for(let j=0;j<=ys.length;j++){ const y=pad+j*rowH; ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(pad+xs.length*colW,y); ctx.stroke(); }
+    // verticals
+    for(let i=0;i<=xs.length;i++){
+      const x=pad+i*colW;
+      ctx.beginPath(); ctx.moveTo(x,pad); ctx.lineTo(x,pad+ys.length*rowH); ctx.stroke();
+    }
+    // horizontals (fixed j++)
+    for(let j=0;j<=ys.length;j++){
+      const y=pad+j*rowH;
+      ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(pad+xs.length*colW, y); ctx.stroke();
+    }
 
     // labels
     ctx.fillStyle="#111"; ctx.font=(12/view.scale)+"px system-ui";
@@ -302,7 +315,7 @@
     ctx.save(); ctx.translate(pad-16/view.scale, pad+(ys.length*rowH)/2); ctx.rotate(-Math.PI/2);
     ctx.fillText(Y, 0, 0); ctx.restore();
 
-    // inner grid hints (light dotted) inside each cell if IX/IY
+    // inner grid hints
     if (IX || IY){
       ctx.setLineDash([3/view.scale, 3/view.scale]); ctx.strokeStyle="rgba(0,0,0,0.12)";
       xs.forEach((xv,ci)=>{
@@ -315,12 +328,10 @@
           const innerW = colW-gridPad*2, innerH=rowH-gridPad*2;
           const colCW = innerW/innerCols, rowRH=innerH/innerRows;
 
-          // verticals
           for(let k=1;k<innerCols;k++){
             const x = cellX+gridPad + k*colCW;
             ctx.beginPath(); ctx.moveTo(x, cellY+gridPad); ctx.lineTo(x, cellY+gridPad+innerH); ctx.stroke();
           }
-          // horizontals
           for(let k=1;k<innerRows;k++){
             const y = cellY+gridPad + k*rowRH;
             ctx.beginPath(); ctx.moveTo(cellX+gridPad, y); ctx.lineTo(cellX+gridPad+innerW, y); ctx.stroke();
@@ -455,11 +466,14 @@
   sizeSlider.addEventListener("input",()=>{ sizeScale=Number(sizeSlider.value); sizeVal.textContent=`${sizeScale.toFixed(2)}×`; draw(); });
   resetBtn.addEventListener("click",()=>{ zoomSlider.value="1.00"; zoomVal.textContent="1.00×"; sizeSlider.value="1.00"; sizeVal.textContent="1.00×"; sizeScale=1; resetView(); });
 
-  modeEls.forEach(r=> r.addEventListener("change",()=>{ mode = modeEls.find(e=>e.checked)?.value || "polar"; relayoutAndDraw(); }));
+  modeEls.forEach(r=> r.addEventListener("change",()=>{
+    mode = modeEls.find(e=>e.checked)?.value || "polar";
+    setGridPanelVisibility();
+    relayoutAndDraw();
+  }));
 
   function relayoutAndDraw(){
     if(!entries.length) return;
-    // ensure images exist for visible entries
     const imgBy = new Map(sprites.map(s=> [s.meta.filename, s.img]));
     const withImg = entries.map(e=> ({...e, img: imgBy.get(e.filename) || null}));
     const need = filtered(withImg).filter(e=> !e.img);
@@ -487,8 +501,8 @@
     buildUniques(entries);
     renderFilters();
     renderAxisControls();
+    setGridPanelVisibility();
 
-    // Preload all base images once (for smoother interactions)
     const loads = entries.map(e=> loadImage(IMG_BASE+e.filename).then(img=> ({...e,img})).catch(()=>null));
     const loaded = (await Promise.all(loads)).filter(Boolean);
 

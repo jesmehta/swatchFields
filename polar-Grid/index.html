@@ -32,6 +32,7 @@
     .sep { height:1px; background:var(--border); margin:10px 0; }
     .modeRow { display:flex; gap:10px; align-items:center; }
     .gridControls { display:grid; grid-template-columns: 1fr 1fr; gap:8px; align-items:center; }
+    .muted { color:var(--muted); font-size:12px; }
   </style>
 </head>
 <body>
@@ -39,24 +40,7 @@
   <div class="app">
     <!-- LEFT SIDEBAR -->
     <aside>
-      <div class="panel">
-        <div class="row">
-          <label>Images:</label><input id="imgBase" type="text" value="images/" />
-        </div>
-        <div class="row" style="margin-top:6px;">
-          <label>Preview (hi-res):</label><input id="imgBaseHi" type="text" value="images/" />
-        </div>
-        <div class="row" style="margin-top:6px;">
-          <label>Lookup JSON:</label><input id="lutUrl" type="text" value="swatch_lookup.json" />
-        </div>
-        <div class="row" style="margin-top:6px;">
-          <label>Canvas (px):</label><input id="diam" type="number" value="1000" step="50" min="600" max="1800" />
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <button id="loadBtn">Load / Reload</button>
-        </div>
-      </div>
-
+      <!-- Display mode + view controls -->
       <div class="panel">
         <div class="modeRow">
           <label>Display:</label>
@@ -79,7 +63,19 @@
         </div>
       </div>
 
-      <div class="panel">
+      <!-- Filters (above grid params) -->
+      <div class="panel" id="filtersPanel">
+        <div class="filters">
+          <div class="fset"><h4>Dyestuff</h4><div id="f-dyestuff" class="opts"></div></div>
+          <div class="fset"><h4>pH</h4><div id="f-pH" class="opts"></div></div>
+          <div class="fset"><h4>Mordant</h4><div id="f-mordant" class="opts"></div></div>
+          <div class="fset"><h4>Additive</h4><div id="f-additive" class="opts"></div></div>
+          <div class="fset"><h4>Time</h4><div id="f-time" class="opts"></div></div>
+        </div>
+      </div>
+
+      <!-- Grid params (only visible in Grid mode) -->
+      <div class="panel" id="gridPanel" style="display:none;">
         <div class="gridControls">
           <div><label for="xAxis">Grid X:</label></div>
           <div><select id="xAxis"></select></div>
@@ -90,17 +86,27 @@
           <div><label for="innerY">Inner Y′:</label></div>
           <div><select id="innerY"></select></div>
         </div>
-        <div class="hint" style="margin-top:6px;">In <b>Grid</b> mode, each (X,Y) cell lays out swatches on a mini-grid using X′ and Y′.</div>
+        <div class="hint" style="margin-top:6px;">Each (X,Y) cell uses X′ and Y′ for a mini-grid layout.</div>
       </div>
 
+      <!-- Resource paths (bottom) -->
       <div class="panel">
-        <div class="filters">
-          <div class="fset"><h4>Dyestuff</h4><div id="f-dyestuff" class="opts"></div></div>
-          <div class="fset"><h4>pH</h4><div id="f-pH" class="opts"></div></div>
-          <div class="fset"><h4>Mordant</h4><div id="f-mordant" class="opts"></div></div>
-          <div class="fset"><h4>Additive</h4><div id="f-additive" class="opts"></div></div>
-          <div class="fset"><h4>Time</h4><div id="f-time" class="opts"></div></div>
+        <div class="row">
+          <label>Images:</label><input id="imgBase" type="text" value="images/" />
         </div>
+        <div class="row" style="margin-top:6px;">
+          <label>Preview (hi-res):</label><input id="imgBaseHi" type="text" value="images/" />
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <label>Lookup JSON:</label><input id="lutUrl" type="text" value="swatch_lookup.json" />
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <label>Canvas (px):</label><input id="diam" type="number" value="1000" step="50" min="600" max="1800" />
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="loadBtn">Load / Reload</button>
+        </div>
+        <div class="muted" style="margin-top:4px;">(These will be hardcoded later.)</div>
       </div>
     </aside>
 
