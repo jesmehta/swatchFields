@@ -1,6 +1,6 @@
-/* Swatch Browser — Filters + Polar/Grid + Preview (vanilla JS) */
+/* Swatch Browser — Polar/Grid + Filters + Nested axes + Preview */
 (() => {
-  // ---- UI grabs ----
+  // UI
   const imgBaseEl   = document.getElementById("imgBase");
   const imgBaseHiEl = document.getElementById("imgBaseHi");
   const lutUrlEl    = document.getElementById("lutUrl");
@@ -25,7 +25,8 @@
 
   const xAxisSel = document.getElementById("xAxis");
   const yAxisSel = document.getElementById("yAxis");
-  const gBySel   = document.getElementById("gBy");
+  const innerXSel= document.getElementById("innerX");
+  const innerYSel= document.getElementById("innerY");
 
   const canvas = document.getElementById("wheel");
   const ctx    = canvas.getContext("2d", { willReadFrequently: true });
@@ -33,510 +34,393 @@
   const bctx   = big.getContext("2d", { willReadFrequently: true });
   const meta   = document.getElementById("meta");
 
-  // ---- Config ----
+  // Config
   let IMG_BASE    = "images/";
   let IMG_BASE_HI = "images/";
   let LUT_URL     = "swatch_lookup.json";
   let DIAM        = 1000;
 
-  // Polar mapping
   const INNER_R = 70;
   const OUTER_R = () => Math.floor(DIAM * 0.47);
-  const BASE_MIN_SIZE = 18;
-  const BASE_MAX_SIZE = 46;
+  const BASE_MIN_SIZE = 18, BASE_MAX_SIZE = 46;
   const MIN_ALPHA = 0.35, MAX_ALPHA = 1.0;
 
-  // View (pan/zoom)
   const view = { scale: 1, offsetX: 0, offsetY: 0 };
   const dpr  = Math.max(1, window.devicePixelRatio || 1);
 
   // State
-  let entries   = [];   // raw LUT (filtered for finite H,S,B)
-  let sprites   = [];   // laid-out
-  let uniq      = {};   // { param -> [values] }
-  let filters   = {};   // { param -> Set(selectedValues) | null (all) }
-  let mode      = "polar";
+  let entries = [];
+  let sprites = [];
+  let uniq    = {};
+  let filters = {};
+  let mode    = "polar";
   let sizeScale = 1;
   let hoverIdx  = -1;
-  const hiCache = new Map(); // filename -> Image | "loading" | "error"
+  const hiCache = new Map();
 
-  // Axis params usable in grid
   const PARAMS = ["dyestuff","pH","mordant","additive","time"];
-  // Friendly labels (optional)
-  const LABEL = { pH: "pH" };
 
-  // ---- Helpers ----
-  const toRad = (deg) => (deg % 360) * Math.PI / 180;
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const lerp  = (a,b,t) => a + (b - a) * t;
-  const map   = (v, in0, in1, out0, out1) => out0 + (clamp((v - in0)/(in1 - in0),0,1) * (out1 - out0));
-  const fmt2  = (n) => Number(n).toFixed(2);
+  // Helpers
+  const toRad = (deg)=> (deg % 360) * Math.PI/180;
+  const clamp = (v,lo,hi)=> Math.min(hi, Math.max(lo, v));
+  const lerp  = (a,b,t)=> a + (b - a) * t;
+  const map   = (v,in0,in1,out0,out1)=> out0 + (clamp((v-in0)/(in1-in0),0,1) * (out1-out0));
+  const fmt2  = (n)=> Number(n).toFixed(2);
 
   function setCanvasSize(px) {
     DIAM = px|0;
-    const css = DIAM, real = Math.round(css * dpr);
-    canvas.style.width = css + "px"; canvas.style.height = css + "px";
+    const css = DIAM, real = Math.round(css*dpr);
+    canvas.style.width = css+"px"; canvas.style.height = css+"px";
     canvas.width = real; canvas.height = real;
     ctx.setTransform(dpr,0,0,dpr,0,0);
     resetView();
   }
-
   function resetView() {
-    view.scale   = Number(zoomSlider.value) || 1;
-    view.offsetX = 0;
-    view.offsetY = 0;
+    view.scale = Number(zoomSlider.value) || 1;
+    view.offsetX = 0; view.offsetY = 0;
     draw();
   }
 
-  async function loadJSON(url) {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-  function loadImage(src) {
-    return new Promise((resolve,reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Failed " + src));
-      img.src = src;
-    });
-  }
+  async function loadJSON(url){ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }
+  function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("Failed "+src)); i.src=src; }); }
 
-  function byKey(key) {
-    return (a,b) => String(a[key]).localeCompare(String(b[key]), undefined, {numeric:true, sensitivity:"base"});
-  }
-
-  // Build unique value lists per parameter
-  function buildUniques(list) {
-    uniq = {};
-    for (const p of PARAMS) uniq[p] = [];
-    const seen = {}; PARAMS.forEach(p => seen[p] = new Set());
-    for (const e of list) {
-      for (const p of PARAMS) {
-        const v = e[p];
-        if (!seen[p].has(v)) { seen[p].add(v); uniq[p].push(v); }
-      }
+  function buildUniques(list){
+    uniq = {}; PARAMS.forEach(p=> uniq[p]=[]);
+    const seen = {}; PARAMS.forEach(p=> seen[p]=new Set());
+    for(const e of list){
+      PARAMS.forEach(p => { if(!seen[p].has(e[p])){ seen[p].add(e[p]); uniq[p].push(e[p]); }});
     }
-    // stable ordering so UI's predictable
-    // keep “time” in natural order if it ends with m (30m, 60m, 90m)
-    uniq.dyestuff.sort(byKey("valueOf")); // default alpha
-    uniq.pH.sort();                       // Acidic, Alkaline, Neutral (alpha; tweak if you want custom order)
-    uniq.mordant.sort();
-    uniq.additive.sort();
-    uniq.time.sort((a,b) => {
-      const A = parseInt(String(a).replace(/\D+/g,''))|0;
-      const B = parseInt(String(b).replace(/\D+/g,''))|0;
-      return A - B;
-    });
+    uniq.dyestuff.sort(); uniq.pH.sort(); uniq.mordant.sort(); uniq.additive.sort();
+    uniq.time.sort((a,b)=> (parseInt(String(a).replace(/\D+/g,''))||0) - (parseInt(String(b).replace(/\D+/g,''))||0));
   }
 
-  // Render checkboxes
-  function renderFilters() {
+  function renderFilters(){
     filters = {};
-    for (const p of PARAMS) {
-      const root = filtRoots[p];
-      root.innerHTML = "";
+    for(const p of PARAMS){
+      const root = filtRoots[p]; root.innerHTML="";
       const frag = document.createDocumentFragment();
 
-      // “All” toggle
       const allId = `all-${p}`;
-      const allWrap = document.createElement("label");
-      allWrap.innerHTML = `<input type="checkbox" id="${allId}" checked /> <b>All</b>`;
-      frag.appendChild(allWrap);
+      const allLbl = document.createElement("label");
+      allLbl.innerHTML = `<input type="checkbox" id="${allId}" checked /> <b>All</b>`;
+      frag.appendChild(allLbl);
 
-      frag.appendChild(document.createElement("div"));
-
-      // Each value
-      uniq[p].forEach((val, i) => {
+      uniq[p].forEach((val,i)=>{
         const id = `f-${p}-${i}`;
         const lab = document.createElement("label");
-        lab.style.whiteSpace = "nowrap";
-        lab.innerHTML = `<input type="checkbox" id="${id}" data-param="${p}" data-value="${val}"/> ${val}`;
+        lab.style.whiteSpace="nowrap";
+        lab.innerHTML = `<input type="checkbox" id="${id}" data-param="${p}" data-value="${val}"> ${val}`;
         frag.appendChild(lab);
       });
 
       root.appendChild(frag);
 
-      // Behavior: if “All” is checked → others unchecked & disabled state ignored
       const all = document.getElementById(allId);
-      const valueBoxes = [...root.querySelectorAll('input[type="checkbox"][id^="f-"]')];
+      const boxes = [...root.querySelectorAll('input[type="checkbox"][id^="f-"]')];
 
-      const sync = () => {
-        if (all.checked) {
-          // no filter
-          filters[p] = null;
-          valueBoxes.forEach(b => { b.checked = false; });
-        } else {
-          const sel = new Set(valueBoxes.filter(b => b.checked).map(b => b.dataset.value));
-          filters[p] = sel.size ? sel : new Set(); // empty set => hides all
+      const sync = ()=>{
+        if(all.checked){ filters[p]=null; boxes.forEach(b=> b.checked=false); }
+        else{
+          const sel = new Set(boxes.filter(b=>b.checked).map(b=>b.dataset.value));
+          filters[p] = sel.size ? sel : new Set(); // empty = hide all
         }
-        updateLayoutAndDraw();
+        relayoutAndDraw();
       };
-
       all.addEventListener("change", sync);
-      valueBoxes.forEach(b => b.addEventListener("change", () => {
-        all.checked = false; // selecting any value turns off “All”
-        sync();
-      }));
+      boxes.forEach(b=> b.addEventListener("change", ()=>{ all.checked=false; sync(); }));
 
-      // initial state
-      filters[p] = null;
+      filters[p]=null;
     }
   }
 
-  // Grid controls (axes + group-by)
-  function renderGridControls() {
-    const options = PARAMS.map(p => `<option value="${p}">${LABEL[p]||p}</option>`).join("");
-    xAxisSel.innerHTML = options;
-    yAxisSel.innerHTML = options;
-    gBySel.innerHTML   = `<option value="">(none)</option>` + options;
-
-    xAxisSel.value = "dyestuff";
-    yAxisSel.value = "pH";
-    gBySel.value   = "mordant";
-
-    [xAxisSel, yAxisSel, gBySel].forEach(el => el.addEventListener("change", updateLayoutAndDraw));
+  function renderAxisControls(){
+    const opts = PARAMS.map(p=> `<option value="${p}">${p}</option>`).join("");
+    xAxisSel.innerHTML = opts; yAxisSel.innerHTML = opts;
+    innerXSel.innerHTML = `<option value="">(none)</option>` + opts;
+    innerYSel.innerHTML = `<option value="">(none)</option>` + opts;
+    xAxisSel.value="dyestuff"; yAxisSel.value="pH";
+    innerXSel.value="mordant"; innerYSel.value="time";
+    [xAxisSel,yAxisSel,innerXSel,innerYSel].forEach(el=> el.addEventListener("change", relayoutAndDraw));
   }
 
-  // Load everything
-  async function loadAll() {
-    IMG_BASE    = imgBaseEl.value.trim();
-    IMG_BASE_HI = imgBaseHiEl.value.trim();
-    LUT_URL     = lutUrlEl.value.trim();
-    setCanvasSize(parseInt(diamEl.value, 10) || 1000);
-
-    let lut = await loadJSON(LUT_URL);
-    if (!Array.isArray(lut)) lut = Object.values(lut);
-
-    entries = lut.map(r => ({
-      filename: r.filename,
-      h: Number(r.h), s: Number(r.s), b: Number(r.b),
-      dyestuff: r.dyestuff, pH: r.pH, mordant: r.mordant, additive: r.additive, time: r.time
-    })).filter(r => Number.isFinite(r.h) && Number.isFinite(r.s) && Number.isFinite(r.b));
-
-    buildUniques(entries);
-    renderFilters();
-    renderGridControls();
-
-    const loads = entries.map(e => loadImage(IMG_BASE + e.filename).then(img => ({...e, img})).catch(()=>null));
-    const loaded = (await Promise.all(loads)).filter(Boolean);
-
-    sprites = layoutPolar(loaded); // default
-    draw();
-    drawPreview(-1);
-  }
-
-  // Filtering
-  function passesFilters(e) {
-    for (const p of PARAMS) {
+  function passesFilters(e){
+    for(const p of PARAMS){
       const sel = filters[p];
-      if (sel === null) continue;       // no filter on this param
-      if (sel.size === 0) return false; // explicit “hide all”
-      if (!sel.has(e[p])) return false; // not selected
+      if(sel===null) continue;
+      if(sel.size===0) return false;
+      if(!sel.has(e[p])) return false;
     }
     return true;
   }
+  function filtered(list){ return list.filter(passesFilters); }
 
-  function filteredList(list) {
-    return list.filter(passesFilters);
-  }
+  function metaPack(e){ return { filename:e.filename, dyestuff:e.dyestuff, pH:e.pH, mordant:e.mordant, additive:e.additive, time:e.time }; }
 
-  // Layouts
-  function layoutPolar(list) {
-    const outR = OUTER_R();
-    const arr = [];
-    for (const e of filteredList(list)) {
-      const h = ((e.h % 360) + 360) % 360;
-      const s = clamp(e.s, 0, 100);
-      const b = clamp(e.b, 0, 100);
-      const theta = toRad(h - 90);
-      const r     = Math.round(map(s, 0, 100, INNER_R, outR));
-      const x     = r * Math.cos(theta);
-      const y     = r * Math.sin(theta);
-      const size  = map(b, 0, 100, BASE_MIN_SIZE, BASE_MAX_SIZE);
-      arr.push({img:e.img, h,s,b, x,y, baseSize:size, meta: metaPack(e)});
+  function layoutPolar(list){
+    const outR = OUTER_R(); const arr=[];
+    for(const e of filtered(list)){
+      const h=((e.h%360)+360)%360, s=clamp(e.s,0,100), b=clamp(e.b,0,100);
+      const th=toRad(h-90), r=Math.round(map(s,0,100,INNER_R,outR));
+      const x=r*Math.cos(th), y=r*Math.sin(th);
+      const size=map(b,0,100,BASE_MIN_SIZE,BASE_MAX_SIZE);
+      arr.push({img:e.img,h:s,b, x,y, baseSize:size, meta:metaPack(e)});
     }
-    arr.sort((a,b) => a.y - b.y); // slight stable sort to look pleasant
+    arr.sort((a,b)=> a.y-b.y);
+    layoutPolar._axes=null;
     return arr;
   }
 
-  function metaPack(e) {
-    return {
-      filename:e.filename, dyestuff:e.dyestuff, pH:e.pH,
-      mordant:e.mordant, additive:e.additive, time:e.time
-    };
-  }
+  // Grid with nested inner axes (X', Y')
+  function layoutGrid(list){
+    const data = filtered(list);
+    const X = xAxisSel.value, Y=yAxisSel.value;
+    const IX = innerXSel.value || null, IY = innerYSel.value || null;
 
-  // Grid layout: categorical axes with cells; group-by controls in-cell nudge
-  function layoutGrid(list) {
-    const data = filteredList(list);
-    const xParam = xAxisSel.value;
-    const yParam = yAxisSel.value;
-    const gParam = gBySel.value || null;
-
-    const xs = uniq[xParam].slice();
-    const ys = uniq[yParam].slice();
-
-    // cell sizes in world coords
-    const pad = 60; // outer padding
-    const W = DIAM - pad*2;
-    const H = DIAM - pad*2;
-    const colW = xs.length ? W / xs.length : W;
-    const rowH = ys.length ? H / ys.length : H;
-
-    // make index maps
+    const xs = uniq[X].slice(), ys=uniq[Y].slice();
     const xi = new Map(xs.map((v,i)=>[v,i]));
     const yi = new Map(ys.map((v,i)=>[v,i]));
 
-    // group color (just a small outline hue by hash)
-    function colorForGroup(val) {
-      if (!gParam || !val) return null;
-      let hash = 0;
-      for (let i=0;i<String(val).length;i++) hash = (hash*31 + String(val).charCodeAt(i))|0;
-      const hue = (hash >>> 0) % 360;
-      return `hsla(${hue},72%,38%,0.85)`;
-    }
+    const pad=60, W=DIAM-pad*2, H=DIAM-pad*2;
+    const colW = xs.length ? W/xs.length : W;
+    const rowH = ys.length ? H/ys.length : H;
 
-    const arr = [];
-    for (const e of data) {
-      const cx = xi.get(e[xParam]), cy = yi.get(e[yParam]);
-      if (cx == null || cy == null) continue;
+    // Build inner unique maps per (X,Y) cell to keep grids tight
+    const innerMap = new Map(); // key "x|y" -> {ixVals, iyVals, ixIndex, iyIndex}
+    function cellKey(xv,yv){ return `${xv}||${yv}`; }
 
-      // base position: cell center
-      const x0 = pad + (cx + 0.5) * colW;
-      const y0 = pad + (cy + 0.5) * rowH;
-
-      // size by brightness (keeps visual feel)
-      const size = map(e.b, 0, 100, BASE_MIN_SIZE, BASE_MAX_SIZE);
-
-      // nudge to separate overlaps (spiral by a stable hash of filename and group value)
-      let seedStr = e.filename + "|" + (gParam ? e[gParam] : "");
-      let hash = 0; for (let i=0;i<seedStr.length;i++) hash = (hash*131 + seedStr.charCodeAt(i))|0;
-      const angle = (hash >>> 0) % 360 * Math.PI / 180;
-      const radius = Math.min(colW, rowH) * 0.18 * ((hash>>>8)%100)/100; // up to 18% of cell
-      const x = x0 + Math.cos(angle) * radius;
-      const y = y0 + Math.sin(angle) * radius;
-
-      arr.push({
-        img:e.img, h:e.h, s:e.s, b:e.b,
-        x,y, baseSize:size, meta: metaPack(e),
-        outline: colorForGroup(gParam ? e[gParam] : null)
+    if (IX || IY){
+      for(const e of data){
+        const k = cellKey(e[X], e[Y]);
+        if(!innerMap.has(k)){
+          innerMap.set(k, {
+            ixVals: IX ? [] : null, iyVals: IY ? [] : null,
+            ixSeen: IX ? new Set() : null, iySeen: IY ? new Set() : null
+          });
+        }
+        const cell = innerMap.get(k);
+        if (IX && !cell.ixSeen.has(e[IX])) { cell.ixSeen.add(e[IX]); cell.ixVals.push(e[IX]); }
+        if (IY && !cell.iySeen.has(e[IY])) { cell.iySeen.add(e[IY]); cell.iyVals.push(e[IY]); }
+      }
+      // sort for readability
+      innerMap.forEach(cell=>{
+        if(cell.ixVals) cell.ixVals.sort();
+        if(cell.iyVals) cell.iyVals.sort((a,b)=>{
+          // keep time like 30m,60m in order
+          const A=parseInt(String(a).replace(/\D+/g,''))||0;
+          const B=parseInt(String(b).replace(/\D+/g,''))||0;
+          return A-B;
+        });
+        // build index maps
+        if(cell.ixVals) cell.ixIndex = new Map(cell.ixVals.map((v,i)=>[v,i]));
+        if(cell.iyVals) cell.iyIndex = new Map(cell.iyVals.map((v,i)=>[v,i]));
       });
     }
 
-    // store grid guides info for drawing axes
-    layoutGrid._axes = { xs, ys, pad, colW, rowH, xParam, yParam };
+    const arr=[];
+    for(const e of data){
+      const cx = xi.get(e[X]), cy = yi.get(e[Y]);
+      if (cx==null || cy==null) continue;
+
+      const cellX = pad + cx*colW, cellY = pad + cy*rowH;
+      const centerX = cellX + colW/2, centerY = cellY + rowH/2;
+
+      const size = map(e.b,0,100,BASE_MIN_SIZE,BASE_MAX_SIZE);
+
+      let x=centerX, y=centerY;
+
+      if (IX || IY){
+        const cell = innerMap.get(cellKey(e[X], e[Y]));
+        const innerCols = cell?.ixVals?.length || 1;
+        const innerRows = cell?.iyVals?.length || 1;
+
+        const gridPad = Math.min(colW,rowH)*0.15; // margin inside cell
+        const innerW = colW - gridPad*2;
+        const innerH = rowH - gridPad*2;
+
+        const ix = IX ? cell.ixIndex.get(e[IX]) : 0;
+        const iy = IY ? cell.iyIndex.get(e[IY]) : 0;
+
+        const colCW = innerW / innerCols;
+        const rowRH = innerH / innerRows;
+
+        x = cellX + gridPad + (ix + 0.5) * colCW;
+        y = cellY + gridPad + (iy + 0.5) * rowRH;
+      } else {
+        // small nudge to separate exact duplicates
+        const seed = e.filename; let hash=0; for(let i=0;i<seed.length;i++) hash=(hash*131+seed.charCodeAt(i))|0;
+        const ang=(hash>>>0)%360*Math.PI/180; const rad=Math.min(colW,rowH)*0.12*((hash>>>8)%100)/100;
+        x = centerX + Math.cos(ang)*rad; y = centerY + Math.sin(ang)*rad;
+      }
+
+      arr.push({img:e.img, h:e.h, s:e.s, b:e.b, x, y, baseSize:size, meta:metaPack(e)});
+    }
+
+    layoutGrid._axes = { xs, ys, pad, colW, rowH, X, Y, IX, IY, innerMap };
     return arr;
   }
 
-  function applyView() {
+  function applyView(){
     ctx.translate(DIAM/2 + view.offsetX, DIAM/2 + view.offsetY);
     ctx.scale(view.scale, view.scale);
-    if (mode === "grid") {
-      // In grid, anchor at top-left world origin so pan feels natural:
-      ctx.translate(-DIAM/2, -DIAM/2);
-    }
+    if (mode==="grid"){ ctx.translate(-DIAM/2, -DIAM/2); }
   }
+  function clear(){ ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr); }
 
-  function clear() {
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr);
-  }
-
-  // Guides
-  function drawGuidesPolar() {
-    if (!guidesEl.checked) return;
+  function drawGuidesPolar(){
+    if(!guidesEl.checked) return;
     const outR = OUTER_R();
-    ctx.save(); applyView();
-    ctx.lineWidth = 1 / view.scale;
-    for (let S=0; S<=100; S+=20) {
-      const r = map(S, 0,100, INNER_R, outR);
-      ctx.strokeStyle = (S%50===0) ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.13)";
+    ctx.save(); applyView(); ctx.lineWidth = 1/view.scale;
+    for(let S=0; S<=100; S+=20){
+      const r = map(S,0,100, INNER_R, outR);
+      ctx.strokeStyle = (S%50===0)?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.13)";
       ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
     }
-    ctx.strokeStyle = "rgba(0,0,0,0.35)";
-    for (let H=0; H<360; H+=30) {
+    ctx.strokeStyle="rgba(0,0,0,0.35)";
+    for(let H=0; H<360; H+=30){
       const t = toRad(H-90);
-      const x1 = (INNER_R-14)*Math.cos(t), y1 = (INNER_R-14)*Math.sin(t);
-      const x2 = (OUTER_R()+14)*Math.cos(t), y2 = (OUTER_R()+14)*Math.sin(t);
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo((INNER_R-14)*Math.cos(t),(INNER_R-14)*Math.sin(t));
+      ctx.lineTo((OUTER_R()+14)*Math.cos(t),(OUTER_R()+14)*Math.sin(t));
+      ctx.stroke();
     }
     ctx.restore();
   }
 
-  function drawGuidesGrid() {
-    if (!guidesEl.checked) return;
-    const ax = layoutGrid._axes; if (!ax) return;
-    const { xs, ys, pad, colW, rowH, xParam, yParam } = ax;
-
-    ctx.save(); applyView();
-    ctx.lineWidth = 1 / view.scale;
-    ctx.strokeStyle = "rgba(0,0,0,0.18)";
-    // grid lines
-    for (let i=0;i<=xs.length;i++){
-      const x = pad + i*colW;
-      ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + ys.length*rowH); ctx.stroke();
-    }
-    for (let j=0;j<=ys.length;j++){
-      const y = pad + j*rowH;
-      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + xs.length*colW, y); ctx.stroke();
-    }
+  function drawGuidesGrid(){
+    if(!guidesEl.checked) return;
+    const ax = layoutGrid._axes; if(!ax) return;
+    const { xs, ys, pad, colW, rowH, X, Y, IX, IY, innerMap } = ax;
+    ctx.save(); applyView(); ctx.lineWidth = 1/view.scale; ctx.strokeStyle="rgba(0,0,0,0.18)";
+    // outer grid
+    for(let i=0;i<=xs.length;i++){ const x=pad+i*colW; ctx.beginPath(); ctx.moveTo(x,pad); ctx.lineTo(x,pad+ys.length*rowH); ctx.stroke(); }
+    for(let j=0;j<=ys.length;j++){ const y=pad+j*rowH; ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(pad+xs.length*colW,y); ctx.stroke(); }
 
     // labels
-    ctx.fillStyle = "#111";
-    ctx.font = (12 / view.scale) + "px system-ui, sans-serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "top";
-    for (let i=0;i<xs.length;i++){
-      const x = pad + (i+0.5)*colW;
-      ctx.fillText(String(xs[i]), x, pad - 18 / view.scale);
+    ctx.fillStyle="#111"; ctx.font=(12/view.scale)+"px system-ui";
+    ctx.textAlign="center"; ctx.textBaseline="bottom";
+    ctx.fillText(X, pad+(xs.length*colW)/2, pad-6/view.scale);
+    ctx.save(); ctx.translate(pad-16/view.scale, pad+(ys.length*rowH)/2); ctx.rotate(-Math.PI/2);
+    ctx.fillText(Y, 0, 0); ctx.restore();
+
+    // inner grid hints (light dotted) inside each cell if IX/IY
+    if (IX || IY){
+      ctx.setLineDash([3/view.scale, 3/view.scale]); ctx.strokeStyle="rgba(0,0,0,0.12)";
+      xs.forEach((xv,ci)=>{
+        ys.forEach((yv,rj)=>{
+          const cell = innerMap.get(`${xv}||${yv}`); if(!cell) return;
+          const innerCols = cell.ixVals?.length || 1;
+          const innerRows = cell.iyVals?.length || 1;
+          const cellX = pad + ci*colW, cellY = pad + rj*rowH;
+          const gridPad = Math.min(colW,rowH)*0.15;
+          const innerW = colW-gridPad*2, innerH=rowH-gridPad*2;
+          const colCW = innerW/innerCols, rowRH=innerH/innerRows;
+
+          // verticals
+          for(let k=1;k<innerCols;k++){
+            const x = cellX+gridPad + k*colCW;
+            ctx.beginPath(); ctx.moveTo(x, cellY+gridPad); ctx.lineTo(x, cellY+gridPad+innerH); ctx.stroke();
+          }
+          // horizontals
+          for(let k=1;k<innerRows;k++){
+            const y = cellY+gridPad + k*rowRH;
+            ctx.beginPath(); ctx.moveTo(cellX+gridPad, y); ctx.lineTo(cellX+gridPad+innerW, y); ctx.stroke();
+          }
+        });
+      });
+      ctx.setLineDash([]);
     }
-    ctx.save();
-    ctx.translate(pad - 10 / view.scale, pad + (ys.length*rowH)/2);
-    ctx.rotate(-Math.PI/2);
-    ctx.fillText(LABEL[yParam]||yParam, 0, -30 / view.scale);
-    ctx.restore();
-
-    // axis titles
-    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(LABEL[xParam]||xParam, pad + (xs.length*colW)/2, pad + ys.length*rowH + 26 / view.scale);
-
     ctx.restore();
   }
 
-  // Hover-only soft square shadow
-  function fillRoundRect(x, y, w, h, r, color, alpha=1) {
-    const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
+  function fillRoundRect(x,y,w,h,r,color,alpha=1){
+    const rr = Math.max(0, Math.min(r, Math.min(w,h)/2));
+    ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=color;
     ctx.beginPath();
-    ctx.moveTo(x+rr, y);
-    ctx.lineTo(x+w-rr, y);
-    ctx.quadraticCurveTo(x+w, y, x+w, y+rr);
-    ctx.lineTo(x+w, y+h-rr);
-    ctx.quadraticCurveTo(x+w, y+h, x+w-rr, y+h);
-    ctx.lineTo(x+rr, y+h);
-    ctx.quadraticCurveTo(x, y+h, x, y+h-rr);
-    ctx.lineTo(x, y+rr);
-    ctx.quadraticCurveTo(x, y, x+rr, y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+    ctx.moveTo(x+rr,y); ctx.lineTo(x+w-rr,y); ctx.quadraticCurveTo(x+w,y,x+w,y+rr);
+    ctx.lineTo(x+w,y+h-rr); ctx.quadraticCurveTo(x+w,y+h,x+w-rr,y+h);
+    ctx.lineTo(x+rr,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-rr);
+    ctx.lineTo(x,y+rr); ctx.quadraticCurveTo(x,y,x+rr,y);
+    ctx.closePath(); ctx.fill(); ctx.restore();
   }
 
-  function drawSprites() {
+  function drawSprites(){
     ctx.save(); applyView();
-    for (let i=0;i<sprites.length;i++){
-      const s = sprites[i];
+    for(let i=0;i<sprites.length;i++){
+      const s=sprites[i];
       const size = s.baseSize * sizeScale;
       const a = lerp(MIN_ALPHA, MAX_ALPHA, s.b/100);
 
-      // hover square shadow only
-      if (i === hoverIdx) {
-        const shadowPad = 4;
-        const rx = s.x - (size/2) + 2;
-        const ry = s.y - (size/2) + 2;
-        fillRoundRect(rx, ry, size + shadowPad, size + shadowPad, Math.max(3, size*0.08), "black", 0.18);
+      if (i===hoverIdx){
+        const rx=s.x-(size/2)+2, ry=s.y-(size/2)+2;
+        fillRoundRect(rx, ry, size+4, size+4, Math.max(3,size*0.08), "black", 0.18);
       }
 
-      // image
-      const w = s.img.width, h = s.img.height;
-      const side = Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
-      ctx.save(); ctx.globalAlpha = a;
-      ctx.drawImage(s.img, sx, sy, side, side, s.x - size/2, s.y - size/2, size, size);
+      const w=s.img.width, h=s.img.height;
+      const side=Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
+      ctx.save(); ctx.globalAlpha=a;
+      ctx.drawImage(s.img, sx, sy, side, side, s.x-size/2, s.y-size/2, size, size);
       ctx.restore();
 
-      // optional group outline (grid)
-      if (mode === "grid" && s.outline) {
-        ctx.save();
-        ctx.lineWidth = Math.max(1, 2 / view.scale);
-        ctx.strokeStyle = s.outline;
-        ctx.strokeRect(s.x - size/2, s.y - size/2, size, size);
-        ctx.restore();
-      }
-
-      if (i === hoverIdx) {
-        ctx.save();
-        ctx.lineWidth = Math.max(1, 2 / view.scale);
-        ctx.strokeStyle = "rgba(0,0,0,0.65)";
-        ctx.strokeRect(s.x - size/2, s.y - size/2, size, size);
-        ctx.restore();
+      if (i===hoverIdx){
+        ctx.save(); ctx.lineWidth=Math.max(1, 2/view.scale); ctx.strokeStyle="rgba(0,0,0,0.65)";
+        ctx.strokeRect(s.x-size/2, s.y-size/2, size, size); ctx.restore();
       }
     }
     ctx.restore();
   }
 
-  function draw() {
+  function draw(){
     clear();
-    if (mode === "polar") drawGuidesPolar();
-    else drawGuidesGrid();
+    if (mode==="polar") drawGuidesPolar(); else drawGuidesGrid();
     drawSprites();
   }
 
-  // Hit-testing
-  function screenToWorld(mx, my) {
-    const rect = canvas.getBoundingClientRect();
-    const x = mx - rect.left, y = my - rect.top;
-    let wx = (x - DIAM/2 - view.offsetX) / view.scale;
-    let wy = (y - DIAM/2 - view.offsetY) / view.scale;
-    if (mode === "grid") { wx += DIAM/2; wy += DIAM/2; }
-    return {x: wx, y: wy};
+  function screenToWorld(mx,my){
+    const r = canvas.getBoundingClientRect();
+    let x = (mx - r.left - DIAM/2 - view.offsetX) / view.scale;
+    let y = (my - r.top  - DIAM/2 - view.offsetY) / view.scale;
+    if (mode==="grid"){ x += DIAM/2; y += DIAM/2; }
+    return {x,y};
   }
-  function findHover(mx,my) {
-    if (!sprites.length) return -1;
+  function findHover(mx,my){
+    if(!sprites.length) return -1;
     const {x,y} = screenToWorld(mx,my);
     let best=-1, bestD=Infinity;
-    for (let i=0;i<sprites.length;i++){
-      const s = sprites[i];
-      const size = s.baseSize * sizeScale;
-      const dX = Math.abs(x - s.x), dY = Math.abs(y - s.y);
-      const hitHalf = size * 0.55;
-      if (dX <= hitHalf && dY <= hitHalf) {
-        const d = Math.hypot(dX,dY);
-        if (d < bestD) { best=i; bestD=d; }
+    for(let i=0;i<sprites.length;i++){
+      const s=sprites[i];
+      const size=s.baseSize*sizeScale;
+      const dx=Math.abs(x-s.x), dy=Math.abs(y-s.y);
+      const hit=size*0.55;
+      if(dx<=hit && dy<=hit){
+        const d=Math.hypot(dx,dy);
+        if(d<bestD){ best=i; bestD=d; }
       }
     }
     return best;
   }
 
-  // Preview with hi-res fallback
-  function drawPreview(idx) {
+  function drawPreview(idx){
     bctx.clearRect(0,0,big.width,big.height);
-    if (idx < 0) { meta.textContent = "Hover a swatch…"; return; }
-    const s = sprites[idx];
-    const pad = 8, box = Math.min(big.width, big.height) - pad*2;
+    if(idx<0){ meta.textContent="Hover a swatch…"; return; }
+    const s=sprites[idx];
+    const pad=8, box=Math.min(big.width,big.height)-pad*2;
 
-    let previewImg = s.img;
-    const fname = s.meta.filename;
+    let img=s.img; const fname=s.meta.filename;
+    const cached=hiCache.get(fname);
+    if(cached===undefined && IMG_BASE_HI){
+      hiCache.set(fname,"loading");
+      loadImage(IMG_BASE_HI+fname).then(im=>{ hiCache.set(fname,im); if(idx===hoverIdx) drawPreview(idx); })
+                                  .catch(()=> hiCache.set(fname,"error"));
+    } else if (cached instanceof HTMLImageElement){ img=cached; }
 
-    if (IMG_BASE_HI) {
-      const cached = hiCache.get(fname);
-      if (cached === undefined) {
-        hiCache.set(fname, "loading");
-        loadImage(IMG_BASE_HI + fname)
-          .then(img => { hiCache.set(fname, img); if (idx===hoverIdx) drawPreview(idx); })
-          .catch(()=> hiCache.set(fname, "error"));
-      } else if (cached instanceof HTMLImageElement) {
-        previewImg = cached;
-      }
-    }
+    const w=img.width, h=img.height, side=Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
+    bctx.save(); bctx.imageSmoothingEnabled=true;
+    bctx.drawImage(img, sx,sy,side,side, pad,pad, box,box); bctx.restore();
 
-    const w = previewImg.width, h = previewImg.height;
-    const side = Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
-
-    bctx.save();
-    bctx.imageSmoothingEnabled = true;
-    bctx.drawImage(previewImg, sx, sy, side, side, pad, pad, box, box);
-    bctx.restore();
-
-    if (hiCache.get(fname) === "loading") {
-      bctx.save();
-      bctx.fillStyle="rgba(0,0,0,0.55)";
-      bctx.fillRect(pad,pad,box,box);
-      bctx.fillStyle="#fff"; bctx.font="bold 14px system-ui";
-      bctx.textAlign="center"; bctx.textBaseline="middle";
-      bctx.fillText("Loading hi-res…", pad+box/2, pad+box/2);
-      bctx.restore();
+    if(hiCache.get(fname)==="loading"){
+      bctx.save(); bctx.fillStyle="rgba(0,0,0,0.55)"; bctx.fillRect(pad,pad,box,box);
+      bctx.fillStyle="#fff"; bctx.font="bold 14px system-ui"; bctx.textAlign="center"; bctx.textBaseline="middle";
+      bctx.fillText("Loading hi-res…", pad+box/2, pad+box/2); bctx.restore();
     }
 
     meta.innerHTML =
@@ -549,90 +433,72 @@
   }
 
   // Events
-  canvas.addEventListener("mousemove", (ev) => {
-    const i = findHover(ev.clientX, ev.clientY);
-    if (i !== hoverIdx) { hoverIdx = i; draw(); drawPreview(hoverIdx); }
-  });
-  canvas.addEventListener("mouseleave", () => { hoverIdx=-1; draw(); drawPreview(-1); });
+  canvas.addEventListener("mousemove",(e)=>{ const i=findHover(e.clientX,e.clientY); if(i!==hoverIdx){ hoverIdx=i; draw(); drawPreview(hoverIdx);} });
+  canvas.addEventListener("mouseleave",()=>{ hoverIdx=-1; draw(); drawPreview(-1); });
 
-  // Pan
-  let dragging=false, lastX=0, lastY=0;
-  canvas.addEventListener("mousedown", (e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
+  let dragging=false,lastX=0,lastY=0;
+  canvas.addEventListener("mousedown",(e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
   window.addEventListener("mouseup", ()=> dragging=false);
-  window.addEventListener("mousemove", (e)=>{
-    if (!dragging) return;
-    const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
-    view.offsetX += dx; view.offsetY += dy; draw();
-  });
+  window.addEventListener("mousemove",(e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; view.offsetX+=dx; view.offsetY+=dy; draw(); });
 
-  // Zoom
-  canvas.addEventListener("wheel", (e)=>{
-    e.preventDefault();
-    const f = (e.deltaY<0)?1.1:1/1.1;
-    zoomAt(e.clientX, e.clientY, f);
-  }, {passive:false});
-
-  function zoomAt(mx,my,factor) {
+  canvas.addEventListener("wheel",(e)=>{ e.preventDefault(); const f=(e.deltaY<0)?1.1:1/1.1; zoomAt(e.clientX,e.clientY,f); }, {passive:false});
+  function zoomAt(mx,my,factor){
     const newScale = clamp(view.scale*factor, 0.5, 4);
     factor = newScale / view.scale;
-    const rect = canvas.getBoundingClientRect();
-    const cx = mx - rect.left - DIAM/2 - view.offsetX;
-    const cy = my - rect.top  - DIAM/2 - view.offsetY;
-    view.offsetX -= cx * (factor - 1);
-    view.offsetY -= cy * (factor - 1);
-    view.scale = newScale;
-    zoomSlider.value = view.scale.toFixed(2);
-    zoomVal.textContent = `${view.scale.toFixed(2)}×`;
-    draw();
+    const r = canvas.getBoundingClientRect();
+    const cx = mx - r.left - DIAM/2 - view.offsetX;
+    const cy = my - r.top  - DIAM/2 - view.offsetY;
+    view.offsetX -= cx*(factor-1); view.offsetY -= cy*(factor-1);
+    view.scale = newScale; zoomSlider.value = view.scale.toFixed(2); zoomVal.textContent = `${view.scale.toFixed(2)}×`; draw();
   }
+  zoomSlider.addEventListener("input",()=>{ const target=Number(zoomSlider.value); const r=canvas.getBoundingClientRect(); zoomAt(r.left+DIAM/2, r.top+DIAM/2, target/view.scale); });
+  sizeSlider.addEventListener("input",()=>{ sizeScale=Number(sizeSlider.value); sizeVal.textContent=`${sizeScale.toFixed(2)}×`; draw(); });
+  resetBtn.addEventListener("click",()=>{ zoomSlider.value="1.00"; zoomVal.textContent="1.00×"; sizeSlider.value="1.00"; sizeVal.textContent="1.00×"; sizeScale=1; resetView(); });
 
-  zoomSlider.addEventListener("input", ()=>{
-    const target = Number(zoomSlider.value);
-    const rect = canvas.getBoundingClientRect();
-    zoomAt(rect.left + DIAM/2, rect.top + DIAM/2, target / view.scale);
-  });
-  sizeSlider.addEventListener("input", ()=>{
-    sizeScale = Number(sizeSlider.value);
-    sizeVal.textContent = `${sizeScale.toFixed(2)}×`;
-    draw();
-  });
-  resetBtn.addEventListener("click", ()=>{
-    zoomSlider.value = "1.00"; zoomVal.textContent = "1.00×";
-    sizeSlider.value = "1.00"; sizeVal.textContent = "1.00×";
-    sizeScale = 1; resetView();
-  });
+  modeEls.forEach(r=> r.addEventListener("change",()=>{ mode = modeEls.find(e=>e.checked)?.value || "polar"; relayoutAndDraw(); }));
 
-  // Mode toggle
-  modeEls.forEach(r => r.addEventListener("change", ()=>{
-    mode = modeEls.find(e=>e.checked)?.value || "polar";
-    updateLayoutAndDraw();
-  }));
-
-  // Apply filters / relayout
-  function updateLayoutAndDraw() {
-    if (!entries.length) return;
-    const base = entries.map(e => ({...e, img: null})); // placeholder
-    // Use already-loaded images by filename lookup from sprites or cache previous images
-    const imgByName = new Map();
-    sprites.forEach(s => imgByName.set(s.meta.filename, s.img));
-    const withImg = base.map(e => ({...e, img: imgByName.get(e.filename) || null}));
-    // we still need images for any new items (e.g., filters turned on reveal ones unseen)
-    const need = withImg.filter(e => !e.img);
-    Promise.all(need.map(e => loadImage(IMG_BASE + e.filename).then(img=>{e.img=img;}).catch(()=>{})))
-      .then(()=>{
-        if (mode === "polar") sprites = layoutPolar(withImg);
-        else sprites = layoutGrid(withImg);
-        draw();
-        drawPreview(hoverIdx);
+  function relayoutAndDraw(){
+    if(!entries.length) return;
+    // ensure images exist for visible entries
+    const imgBy = new Map(sprites.map(s=> [s.meta.filename, s.img]));
+    const withImg = entries.map(e=> ({...e, img: imgBy.get(e.filename) || null}));
+    const need = filtered(withImg).filter(e=> !e.img);
+    Promise.all(need.map(e=> loadImage(IMG_BASE+e.filename).then(img=>{e.img=img;}).catch(()=>{})))
+      .then(()=> {
+        sprites = (mode==="polar") ? layoutPolar(withImg) : layoutGrid(withImg);
+        draw(); drawPreview(hoverIdx);
       });
   }
 
-  // Initial
-  loadBtn.addEventListener("click", ()=>{ hiCache.clear(); loadAll().catch(err=>alert("Load failed: "+err.message)); });
+  loadBtn.addEventListener("click", ()=>{ hiCache.clear(); loadAll().catch(err=> alert("Load failed: "+err.message)); });
 
+  async function loadAll(){
+    IMG_BASE    = imgBaseEl.value.trim();
+    IMG_BASE_HI = imgBaseHiEl.value.trim();
+    LUT_URL     = lutUrlEl.value.trim();
+    setCanvasSize(parseInt(diamEl.value,10) || 1000);
+
+    let lut = await loadJSON(LUT_URL); if(!Array.isArray(lut)) lut = Object.values(lut);
+    entries = lut.map(r=> ({
+      filename:r.filename, h:Number(r.h), s:Number(r.s), b:Number(r.b),
+      dyestuff:r.dyestuff, pH:r.pH, mordant:r.mordant, additive:r.additive, time:r.time
+    })).filter(r=> Number.isFinite(r.h) && Number.isFinite(r.s) && Number.isFinite(r.b));
+
+    buildUniques(entries);
+    renderFilters();
+    renderAxisControls();
+
+    // Preload all base images once (for smoother interactions)
+    const loads = entries.map(e=> loadImage(IMG_BASE+e.filename).then(img=> ({...e,img})).catch(()=>null));
+    const loaded = (await Promise.all(loads)).filter(Boolean);
+
+    sprites = layoutPolar(loaded);
+    draw(); drawPreview(-1);
+  }
+
+  // Init
   (function init(){
-    sizeVal.textContent = "1.00×";
-    zoomVal.textContent = "1.00×";
+    sizeVal.textContent="1.00×"; zoomVal.textContent="1.00×";
     setCanvasSize(parseInt(diamEl.value,10) || 1000);
     draw();
     loadAll().catch(console.error);
