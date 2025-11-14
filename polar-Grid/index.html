@@ -1,130 +1,354 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Swatch Browser — Polar/Grid + Filters + Nested Axes + Preview</title>
+  <title>Dyestuff Swatch Explorer — Polar & Grid (v2.3)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --ui:#0b0b0c; --muted:#6b7280; --bg:#ffffff; --border:#e5e7eb; }
-    * { box-sizing: border-box; }
-    body { margin:0; font:14px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ui); background:var(--bg); }
-    h2 { margin:0 0 8px; padding:16px; border-bottom:1px solid var(--border); }
-    .app { display:grid; grid-template-columns: 280px 1fr 360px; height:100vh; }
-    aside { border-right:1px solid var(--border); padding:12px; overflow:auto; }
-    main  { border-right:1px solid var(--border); padding:12px; display:flex; flex-direction:column; gap:8px; overflow:auto; }
-    .right { padding:12px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
-    .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-    label { font-weight:600; }
-    input[type="text"], input[type="number"], input[type="range"], select {
-      padding:6px 8px; border:1px solid var(--border); border-radius:8px; min-width:140px; background:#fff;
+    :root {
+      --border:#e5e7eb;
+      --ink:#0b0b0c;
+      --muted:#6b7280;
+      --bg:#ffffff;
     }
-    button { padding:8px 12px; border:1px solid var(--border); background:#fafafa; border-radius:8px; cursor:pointer; }
-    .hint { color:var(--muted); font-size:12px; margin:6px 0 12px; }
-    .panel { border:1px solid var(--border); border-radius:10px; padding:10px; }
-    .filters { display:grid; gap:10px; }
-    .fset h4 { margin:0 0 6px; font-size:13px; }
-    .fset .opts { max-height:150px; overflow:auto; display:grid; gap:4px; }
-    .pill { font-size:11px; background:#f3f4f6; border:1px solid var(--border); padding:2px 6px; border-radius:999px; }
-    #wheel { display:block; width:100%; height:auto; background:#fff; border:1px solid var(--border); border-radius:12px; touch-action:none; }
-    #preview { position:sticky; top:12px; border:1px solid var(--border); border-radius:12px; padding:12px; }
-    #big { width:100%; height:auto; display:block; background:#fff; border-radius:8px; }
-    .kv { font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-top:8px; color:#111; }
-    .sep { height:1px; background:var(--border); margin:10px 0; }
-    .modeRow { display:flex; gap:10px; align-items:center; }
-    .gridControls { display:grid; grid-template-columns: 1fr 1fr; gap:8px; align-items:center; }
-    .muted { color:var(--muted); font-size:12px; }
+    * { box-sizing:border-box; }
+    body {
+      margin:0;
+      font:14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+           Roboto, Helvetica, Arial, sans-serif;
+      background:var(--bg);
+      color:var(--ink);
+    }
+    header {
+      padding:12px 16px;
+      border-bottom:1px solid var(--border);
+      font-weight:600;
+    }
+    header small { font-weight:400; color:var(--muted); }
+
+    .app {
+      display:grid;
+      grid-template-columns: 280px 1fr 320px;
+      height:calc(100vh - 46px);
+    }
+    aside.left {
+      border-right:1px solid var(--border);
+      padding:10px;
+      overflow:auto;
+    }
+    aside.right {
+      border-left:1px solid var(--border);
+      padding:10px;
+      overflow:auto;
+    }
+    main {
+      padding:10px;
+      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .panel {
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:10px;
+      margin-bottom:10px;
+    }
+    .panel h3 {
+      margin:0 0 6px 0;
+      font-size:13px;
+      font-weight:600;
+    }
+    .panel small { color:var(--muted); }
+
+    .row {
+      display:flex;
+      gap:6px;
+      align-items:center;
+      margin-bottom:8px;
+      flex-wrap:wrap;
+    }
+    label b { font-weight:600; }
+
+    input[type="number"],
+    select {
+      padding:4px 6px;
+      border:1px solid var(--border);
+      border-radius:8px;
+      font-size:13px;
+    }
+    input[type="range"] {
+      width:120px;
+    }
+    button {
+      padding:6px 10px;
+      border-radius:8px;
+      border:1px solid var(--border);
+      background:#fafafa;
+      cursor:pointer;
+      font-size:13px;
+    }
+    button:disabled { opacity:0.5; cursor:default; }
+
+    .pill {
+      font-size:11px;
+      background:#f3f4f6;
+      border:1px solid var(--border);
+      border-radius:999px;
+      padding:2px 6px;
+    }
+    .muted { color:var(--muted); }
+
+    .filter-group {
+      margin-bottom:8px;
+      border-top:1px solid #f3f4f6;
+      padding-top:6px;
+    }
+    .filter-group:first-child { border-top:none; padding-top:0; }
+    .filter-group-title {
+      font-size:12px;
+      font-weight:600;
+      margin-bottom:4px;
+    }
+    .filter-chips {
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+    }
+    .chip {
+      display:inline-flex;
+      align-items:center;
+      gap:2px;
+      font-size:11px;
+      padding:2px 6px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#f9fafb;
+    }
+    .chip input {
+      margin:0;
+    }
+
+    canvas#view {
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#ffffff;
+      max-width:100%;
+      height:auto;
+    }
+
+    #info { font-size:12px; color:var(--muted); }
+
+    /* right sidebar stuff */
+    .thumbWrap, .hoverWrap, .displayWrap {
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:8px;
+      margin-bottom:10px;
+    }
+    .thumbWrap h4, .hoverWrap h4, .displayWrap h4 {
+      margin:0 0 6px 0;
+      font-size:13px;
+    }
+    #thumb {
+      display:none;
+      width:100%;
+      height:auto;
+      border-radius:6px;
+      border:1px solid var(--border);
+      background:#f9fafb;
+    }
+    #hoverSwatch {
+      width:100%;
+      max-width:180px;
+      height:auto;
+      aspect-ratio:1/1;
+      border-radius:8px;
+      border:1px solid var(--border);
+      background:#fff;
+    }
+    #hoverMeta {
+      font-size:12px;
+    }
+    #hoverMeta .sep {
+      margin:6px 0;
+      height:1px;
+      background:var(--border);
+    }
+    #hoverMeta .row {
+      margin-bottom:2px;
+    }
+
+    .grid-only { display:none; } /* will be shown in JS when mode=grid */
+
+    @media (max-width: 960px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+        height:auto;
+      }
+      aside.left, aside.right, main {
+        border:none;
+        height:auto;
+      }
+      aside.left { border-bottom:1px solid var(--border); }
+      aside.right { border-top:1px solid var(--border); }
+    }
   </style>
 </head>
 <body>
-  <h2>Swatch Browser</h2>
+  <header>
+    Dyestuff Swatch Explorer — Polar &amp; Grid (v2.3)
+    <small> · imagesBordered + imagesSuperCrop · swatch_lookup.json</small>
+  </header>
+
   <div class="app">
-    <!-- LEFT SIDEBAR -->
-    <aside>
-      <!-- Filters -->
-      <div class="panel" id="filtersPanel">
-        <div class="filters">
-          <div class="fset"><h4>Dyestuff</h4><div id="f-dyestuff" class="opts"></div></div>
-          <div class="fset"><h4>pH</h4><div id="f-pH" class="opts"></div></div>
-          <div class="fset"><h4>Mordant</h4><div id="f-mordant" class="opts"></div></div>
-          <div class="fset"><h4>Additive</h4><div id="f-additive" class="opts"></div></div>
-          <div class="fset"><h4>Time</h4><div id="f-time" class="opts"></div></div>
-        </div>
-      </div>
-
-      <!-- Grid params (only visible in Grid mode) -->
-      <div class="panel" id="gridPanel" style="display:none;">
-        <div class="gridControls">
-          <div><label for="xAxis">Grid X:</label></div>
-          <div><select id="xAxis"></select></div>
-          <div><label for="yAxis">Grid Y:</label></div>
-          <div><select id="yAxis"></select></div>
-          <div><label for="innerX">Inner X′:</label></div>
-          <div><select id="innerX"></select></div>
-          <div><label for="innerY">Inner Y′:</label></div>
-          <div><select id="innerY"></select></div>
-        </div>
-        <div class="hint" style="margin-top:6px;">Each (X,Y) cell uses X′ and Y′ for a mini-grid layout.</div>
-      </div>
-
-      <!-- Resource paths (bottom) -->
+    <!-- LEFT SIDEBAR: filters & controls -->
+    <aside class="left">
       <div class="panel">
+        <h3>Data</h3>
         <div class="row">
-          <label>Images:</label><input id="imgBase" type="text" value="images/" />
+          <button id="loadBtn">Load swatches</button>
+          <span id="status" class="pill">idle</span>
         </div>
-        <div class="row" style="margin-top:6px;">
-          <label>Preview (hi-res):</label><input id="imgBaseHi" type="text" value="images/" />
+        <small class="muted">
+          Uses <code>swatch_lookup.json</code>, <code>imagesBordered/</code> (display) and <code>imagesSuperCrop/</code> (hover preview).
+        </small>
+      </div>
+
+      <div class="panel">
+        <h3>Display</h3>
+        <div class="row">
+          <label><input type="radio" name="mode" value="polar" checked> Polar (HSB wheel)</label>
         </div>
-        <div class="row" style="margin-top:6px;">
-          <label>Lookup JSON:</label><input id="lutUrl" type="text" value="swatch_lookup.json" />
+        <div class="row">
+          <label><input type="radio" name="mode" value="grid"> Grid (axes)</label>
         </div>
-        <div class="row" style="margin-top:6px;">
-          <label>Canvas (px):</label><input id="diam" type="number" value="1000" step="50" min="600" max="1800" />
+        <div class="row">
+          <label><input id="showGuides" type="checkbox" checked> Show guides / axes</label>
         </div>
-        <div class="row" style="margin-top:8px;">
-          <button id="loadBtn">Load / Reload</button>
+        <div class="row">
+          <label><b>Zoom</b></label>
+          <input id="zoom" type="range" min="0.5" max="2.0" value="1.0" step="0.05">
+          <span id="zoomVal" class="pill">1.0×</span>
         </div>
-        <div class="muted" style="margin-top:4px;">(These will be hardcoded later.)</div>
+        <div class="row">
+          <label><b>Swatch size</b></label>
+          <input id="swatchSize" type="range" min="6" max="40" value="14">
+          <span id="swatchSizeVal" class="pill">14px</span>
+        </div>
+      </div>
+
+      <div class="panel grid-only" id="gridSettings">
+        <h3>Grid axes</h3>
+        <div class="row">
+          <label><b>Outer X</b></label>
+          <select id="gridOuterX"></select>
+        </div>
+        <div class="row">
+          <label><b>Outer Y</b></label>
+          <select id="gridOuterY"></select>
+        </div>
+        <div class="row">
+          <label><b>Inner X′</b></label>
+          <select id="gridInnerX"></select>
+        </div>
+        <div class="row">
+          <label><b>Inner Y′</b></label>
+          <select id="gridInnerY"></select>
+        </div>
+        <small class="muted">
+          Within each outer X×Y cell, swatches are arranged along X′ and Y′.
+        </small>
+      </div>
+
+      <div class="panel">
+        <h3>Filters</h3>
+
+        <div class="filter-group">
+          <div class="filter-group-title">Dyestuff</div>
+          <div id="filterDyestuff" class="filter-chips"></div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-group-title">pH</div>
+          <div id="filterPH" class="filter-chips"></div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-group-title">Mordant</div>
+          <div id="filterMordant" class="filter-chips"></div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-group-title">Additive</div>
+          <div id="filterAdditive" class="filter-chips"></div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-group-title">Time</div>
+          <div id="filterTime" class="filter-chips"></div>
+        </div>
+
+        <div class="row">
+          <button id="selectAll">Select all</button>
+          <button id="clearAll">Clear all</button>
+        </div>
       </div>
     </aside>
 
-    <!-- CENTER -->
+    <!-- CENTER: canvas -->
     <main>
-      <canvas id="wheel" width="1000" height="1000"></canvas>
+      <canvas id="view" width="900" height="900"></canvas>
+      <small id="info" class="muted">Load swatches to begin.</small>
     </main>
 
-    <!-- RIGHT -->
-    <div class="right">
-      <div id="preview" class="panel">
-        <canvas id="big" width="340" height="340"></canvas>
-        <div class="sep"></div>
-        <div id="meta" class="kv">Hover a swatch…</div>
+    <!-- RIGHT SIDEBAR: thumb + hovered swatch + quick settings -->
+    <aside class="right">
+      <div class="thumbWrap">
+        <h4>Original colour wheel thumbnail</h4>
+        <canvas id="thumb"></canvas>
+        <small class="muted">
+          Currently mirrors the main view. Future version can hold a captured snapshot.
+        </small>
       </div>
 
-      <!-- Display controls moved here -->
-      <div class="panel">
-        <div class="modeRow">
-          <label>Display:</label>
-          <label><input type="radio" name="mode" value="polar" checked /> Polar (HSB wheel)</label>
-          <label><input type="radio" name="mode" value="grid" /> Grid</label>
+      <div class="hoverWrap">
+        <h4>Hovered swatch</h4>
+        <div class="row" style="align-items:flex-start;">
+          <canvas id="hoverSwatch" width="180" height="180"></canvas>
+          <div id="hoverMeta">
+            <div class="row"><b>File:</b>&nbsp;<span data-field="filename">—</span></div>
+            <div class="row"><b>Dye:</b>&nbsp;<span data-field="dyestuff">—</span></div>
+            <div class="row"><b>pH:</b>&nbsp;<span data-field="pH">—</span></div>
+            <div class="row"><b>Mordant:</b>&nbsp;<span data-field="mordant">—</span></div>
+            <div class="row"><b>Additive:</b>&nbsp;<span data-field="additive">—</span></div>
+            <div class="row"><b>Time:</b>&nbsp;<span data-field="time">—</span></div>
+            <div class="sep"></div>
+            <div class="row">
+              <b>H:</b>&nbsp;<span data-field="H">—</span>&nbsp;&nbsp;
+              <b>S:</b>&nbsp;<span data-field="S">—</span>&nbsp;&nbsp;
+              <b>B:</b>&nbsp;<span data-field="B">—</span>
+            </div>
+          </div>
         </div>
-        <div class="row" style="margin-top:8px;">
-          <label><input id="guides" type="checkbox" checked /> Show guides</label>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <label>Zoom:</label><input id="zoom" type="range" min="0.5" max="4" value="1" step="0.05" />
-          <span id="zoomVal" class="pill">1.00×</span>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <label>Swatch size:</label><input id="sizeScale" type="range" min="0.6" max="1.8" value="1" step="0.05" />
-          <span id="sizeVal" class="pill">1.00×</span>
-        </div>
-        <div class="row" style="margin-top:8px;">
-          <button id="resetView">Reset View</button>
-        </div>
+        <small class="muted">Move the mouse over the canvas to inspect a swatch.</small>
       </div>
-    </div>
+
+      <div class="displayWrap">
+        <h4>Quick view info</h4>
+        <div class="row">
+          <span class="pill" id="countTotal">Total: 0</span>
+          <span class="pill" id="countFiltered">Shown: 0</span>
+        </div>
+        <small class="muted">
+          v2.3 · Polar/HSB and Grid layouts. Data source: <code>swatch_lookup.json</code>.
+        </small>
+      </div>
+    </aside>
   </div>
 
-  <script src="script.js" defer></script>
+  <script src="script.js"></script>
 </body>
 </html>

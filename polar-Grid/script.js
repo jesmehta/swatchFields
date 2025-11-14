@@ -1,588 +1,648 @@
-/* Swatch Browser — Polar/Grid + Filters + Nested axes + Preview (final) */
 (() => {
-  // -------- UI ELEMENTS --------
-  const imgBaseEl   = document.getElementById("imgBase");
-  const imgBaseHiEl = document.getElementById("imgBaseHi");
-  const lutUrlEl    = document.getElementById("lutUrl");
-  const diamEl      = document.getElementById("diam");
-  const guidesEl    = document.getElementById("guides");
-  const loadBtn     = document.getElementById("loadBtn");
+  // HARD-CODED PATHS (as per your workflow)
+  const SWATCH_FOLDER  = "../imagesSuperCrop/";   // main display images
+  const PREVIEW_FOLDER = "../imagesBordered/";  // high-res hover swatch
+  const LUT_URL        = "../swatch_lookup.json";
 
-  const modeEls     = [...document.querySelectorAll('input[name="mode"]')];
-  const zoomSlider  = document.getElementById("zoom");
-  const zoomVal     = document.getElementById("zoomVal");
-  const sizeSlider  = document.getElementById("sizeScale");
-  const sizeVal     = document.getElementById("sizeVal");
-  const resetBtn    = document.getElementById("resetView");
+  // --- DOM refs ---
+  const canvas    = document.getElementById("view");
+  const ctx       = canvas.getContext("2d");
+  const thumb     = document.getElementById("thumb");
+  const tctx      = thumb.getContext("2d");
+  const hoverC    = document.getElementById("hoverSwatch");
+  const hctx      = hoverC.getContext("2d");
 
-  const filtRoots = {
-    dyestuff: document.getElementById("f-dyestuff"),
-    pH:       document.getElementById("f-pH"),
-    mordant:  document.getElementById("f-mordant"),
-    additive: document.getElementById("f-additive"),
-    time:     document.getElementById("f-time"),
+  const loadBtn   = document.getElementById("loadBtn");
+  const statusEl  = document.getElementById("status");
+  const infoEl    = document.getElementById("info");
+
+  const zoomSl    = document.getElementById("zoom");
+  const zoomVal   = document.getElementById("zoomVal");
+  const sizeSl    = document.getElementById("swatchSize");
+  const sizeVal   = document.getElementById("swatchSizeVal");
+  const showGuidesEl = document.getElementById("showGuides");
+
+  const gridSettings = document.getElementById("gridSettings");
+  const gridOuterXEl = document.getElementById("gridOuterX");
+  const gridOuterYEl = document.getElementById("gridOuterY");
+  const gridInnerXEl = document.getElementById("gridInnerX");
+  const gridInnerYEl = document.getElementById("gridInnerY");
+
+  const filterDyestuffEl = document.getElementById("filterDyestuff");
+  const filterPHEl       = document.getElementById("filterPH");
+  const filterMordantEl  = document.getElementById("filterMordant");
+  const filterAddEl      = document.getElementById("filterAdditive");
+  const filterTimeEl     = document.getElementById("filterTime");
+
+  const selectAllBtn = document.getElementById("selectAll");
+  const clearAllBtn  = document.getElementById("clearAll");
+
+  const countTotalEl    = document.getElementById("countTotal");
+  const countFilteredEl = document.getElementById("countFiltered");
+
+  const hoverMetaEl = document.getElementById("hoverMeta");
+  const hoverFields = {
+    filename: hoverMetaEl.querySelector('[data-field="filename"]'),
+    dyestuff: hoverMetaEl.querySelector('[data-field="dyestuff"]'),
+    pH:       hoverMetaEl.querySelector('[data-field="pH"]'),
+    mordant:  hoverMetaEl.querySelector('[data-field="mordant"]'),
+    additive: hoverMetaEl.querySelector('[data-field="additive"]'),
+    time:     hoverMetaEl.querySelector('[data-field="time"]'),
+    H:        hoverMetaEl.querySelector('[data-field="H"]'),
+    S:        hoverMetaEl.querySelector('[data-field="S"]'),
+    B:        hoverMetaEl.querySelector('[data-field="B"]')
   };
 
-  const xAxisSel = document.getElementById("xAxis");
-  const yAxisSel = document.getElementById("yAxis");
-  const innerXSel= document.getElementById("innerX");
-  const innerYSel= document.getElementById("innerY");
-  const gridPanel= document.getElementById("gridPanel");
-
-  const canvas = document.getElementById("wheel");
-  const ctx    = canvas.getContext("2d", { willReadFrequently: true });
-  const big    = document.getElementById("big");
-  const bctx   = big.getContext("2d", { willReadFrequently: true });
-  const meta   = document.getElementById("meta");
-
-  // -------- CONFIG --------
-  let IMG_BASE    = "images/";
-  let IMG_BASE_HI = "images/";
-  let LUT_URL     = "swatch_lookup.json";
-  let DIAM        = 1000;
-
-  const INNER_R = 70;
-  const OUTER_R = () => Math.floor(DIAM * 0.47);
-  const BASE_MIN_SIZE = 18, BASE_MAX_SIZE = 46;
-  const MIN_ALPHA = 0.35, MAX_ALPHA = 1.0;
-
-  const view = { scale: 1, offsetX: 0, offsetY: 0 };
-  const dpr  = Math.max(1, window.devicePixelRatio || 1);
-
-  // -------- STATE --------
-  let entries = [];           // LUT rows with H,S,B + metadata (no images)
-  let sprites = [];           // positioned drawables with images
-  let uniq    = {};           // unique values by param
-  let filters = {};           // current filter selections
-  let mode    = "polar";      // "polar" | "grid"
-  let sizeScale = 1;          // user size multiplier
-  let hoverIdx  = -1;         // hovered sprite index
-  const hiCache = new Map();  // fname -> hi-res Image | "loading" | "error"
+  // --- state ---
+  let swatches = [];       // full dataset
+  let filtered = [];       // after filter
+  let layout   = [];       // drawn swatches for hover (x,y,size,swatch)
+  let mode     = "polar";  // "polar" | "grid"
 
   const PARAMS = ["dyestuff","pH","mordant","additive","time"];
 
-  // -------- HELPERS --------
-  const PH_ORDER = ["Acidic","Neutral","Alkaline"];
-  const PH_ANN   = { Acidic:"Acidic (~pH 3)", Neutral:"Neutral (~pH 7)", Alkaline:"Alkaline (~pH 9)" };
-  const displayVal = (param, val) => (param==="pH" ? (PH_ANN[val] || val) : val);
+  // --- helpers ---
+  function setStatus(msg) { statusEl.textContent = msg; }
 
-  // Convert time strings to minutes for numeric sorting (12h -> 720)
-  const timeToMinutes = (t) => {
-    if (typeof t !== "string") return 0;
-    const m = t.trim().toLowerCase();
-    if (m.endsWith("h")) return (parseInt(m, 10) || 0) * 60;
-    if (m.endsWith("m")) return (parseInt(m, 10) || 0);
-    const n = parseInt(m.replace(/\D+/g, ""), 10);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const toRad = (deg)=> (deg % 360) * Math.PI/180;
-  const clamp = (v,lo,hi)=> Math.min(hi, Math.max(lo, v));
-  const lerp  = (a,b,t)=> a + (b - a) * t;
-  const map   = (v,in0,in1,out0,out1)=> out0 + (clamp((v-in0)/(in1-in0),0,1) * (out1-out0));
-  const fmt2  = (n)=> Number(n).toFixed(2);
-
-  function setCanvasSize(px) {
-    DIAM = px|0;
-    const css = DIAM, real = Math.round(css*dpr);
-    canvas.style.width = css+"px"; canvas.style.height = css+"px";
-    canvas.width = real; canvas.height = real;
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    resetView();
-  }
-  function resetView() {
-    view.scale = Number(zoomSlider.value) || 1;
-    view.offsetX = 0; view.offsetY = 0;
-    draw();
-  }
-
-  async function loadJSON(url){
-    const r=await fetch(url,{cache:"no-store"});
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  }
-  function loadImage(src){
-    return new Promise((res,rej)=>{
-      const i=new Image();
-      i.onload=()=>res(i);
-      i.onerror=()=>rej(new Error("Failed "+src));
-      i.src=src;
+  function loadJSON(url) {
+    return fetch(url, { cache:"no-store" }).then(r=>{
+      if(!r.ok) throw new Error(r.status);
+      return r.json();
     });
   }
 
-  function buildUniques(list){
-    uniq = {}; PARAMS.forEach(p=> uniq[p]=[]);
-    const seen = {}; PARAMS.forEach(p=> seen[p]=new Set());
-    for(const e of list){
-      PARAMS.forEach(p => {
-        if(!seen[p].has(e[p])){ seen[p].add(e[p]); uniq[p].push(e[p]); }
-      });
-    }
-    uniq.dyestuff.sort();
-    uniq.pH.sort((a,b)=> PH_ORDER.indexOf(a) - PH_ORDER.indexOf(b));
-    uniq.mordant.sort();
-    uniq.additive.sort();
-    // important: time sort using minutes (so 12h comes last)
-    uniq.time.sort((a,b)=> timeToMinutes(a) - timeToMinutes(b));
+  function loadImage(src) {
+    return new Promise((resolve,reject)=>{
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Failed to load "+src));
+      img.src = src;
+    });
   }
 
-  function renderFilters(){
-    filters = {};
-    for(const p of PARAMS){
-      const root = filtRoots[p]; root.innerHTML="";
-      const frag = document.createDocumentFragment();
+  function rgbToHex(r,g,b) {
+    const toHex = v => v.toString(16).padStart(2,"0");
+    return "#" + toHex(r) + toHex(g) + toHex(b);
+  }
 
-      const allId = `all-${p}`;
-      const allLbl = document.createElement("label");
-      allLbl.innerHTML = `<input type="checkbox" id="${allId}" checked /> <b>All</b>`;
-      frag.appendChild(allLbl);
+  // sort helpers
+  function sortPH(values) {
+    const order = ["Acidic","Neutral","Alkaline"];
+    return [...values].sort((a,b)=> order.indexOf(a)-order.indexOf(b));
+  }
+  function timeToMinutes(t) {
+    if (t === "12h") return 720;
+    const m = /(\d+)\s*m/.exec(t);
+    if (m) return parseInt(m[1],10);
+    return 0;
+  }
+  function sortTime(values) {
+    return [...values].sort((a,b)=> timeToMinutes(a)-timeToMinutes(b));
+  }
 
-      uniq[p].forEach((val,i)=>{
-        const id = `f-${p}-${i}`;
-        const lab = document.createElement("label");
-        lab.style.whiteSpace="nowrap";
-        lab.innerHTML = `<input type="checkbox" id="${id}" data-param="${p}" data-value="${val}"> ${displayVal(p,val)}`;
-        frag.appendChild(lab);
+  function buildChips(container, paramName, values) {
+    container.innerHTML = "";
+    values.forEach(val=>{
+      const chip = document.createElement("label");
+      chip.className = "chip";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.dataset.param = paramName;
+      cb.dataset.value = val;
+      cb.addEventListener("change", onFilterChange);
+      chip.appendChild(cb);
+      chip.append(" "+val);
+      container.appendChild(chip);
+    });
+  }
+
+  function buildFilters() {
+    const uniq = (arr) => [...new Set(arr)];
+
+    const dyes  = uniq(swatches.map(s=>s.dyestuff)).sort((a,b)=>a.localeCompare(b));
+    const ph    = sortPH(uniq(swatches.map(s=>s.pH)));
+    const mord  = uniq(swatches.map(s=>s.mordant)).sort((a,b)=>a.localeCompare(b));
+    const add   = uniq(swatches.map(s=>s.additive)).sort((a,b)=>a.localeCompare(b));
+    const time  = sortTime(uniq(swatches.map(s=>s.time)));
+
+    buildChips(filterDyestuffEl, "dyestuff", dyes);
+    buildChips(filterPHEl,       "pH",       ph.map(v=>labelPH(v)));
+    buildChips(filterMordantEl,  "mordant",  mord);
+    buildChips(filterAddEl,      "additive", add);
+    buildChips(filterTimeEl,     "time",     time.map(v=>labelTime(v)));
+  }
+
+  function labelPH(v) {
+    // display annotated, but underlying value remains raw
+    if (v === "Acidic")  return "Acidic (~pH3)";
+    if (v === "Neutral") return "Neutral (~pH7)";
+    if (v === "Alkaline")return "Alkaline (~pH9)";
+    return v;
+  }
+  function unlabelPH(label) {
+    if (label.startsWith("Acidic")) return "Acidic";
+    if (label.startsWith("Neutral")) return "Neutral";
+    if (label.startsWith("Alkaline")) return "Alkaline";
+    return label;
+  }
+
+  function labelTime(v) {
+    if (v === "12h") return "12h (~720m)";
+    return v;
+  }
+  function unlabelTime(label) {
+    if (label.startsWith("12h")) return "12h";
+    return label;
+  }
+
+  function getFilterSelections() {
+    const allCbs = document.querySelectorAll(".filter-chips input[type=checkbox]");
+    const selected = { dyestuff:new Set(), pH:new Set(), mordant:new Set(), additive:new Set(), time:new Set() };
+
+    allCbs.forEach(cb=>{
+      if (!cb.checked) return;
+      const param = cb.dataset.param;
+      let val = cb.dataset.value;
+      if (param === "pH")   val = unlabelPH(val);
+      if (param === "time") val = unlabelTime(val);
+      selected[param].add(val);
+    });
+
+    return selected;
+  }
+
+  function applyFilters() {
+    const sel = getFilterSelections();
+
+    filtered = swatches.filter(s => (
+      (sel.dyestuff.size===0 || sel.dyestuff.has(s.dyestuff)) &&
+      (sel.pH.size===0       || sel.pH.has(s.pH)) &&
+      (sel.mordant.size===0  || sel.mordant.has(s.mordant)) &&
+      (sel.additive.size===0 || sel.additive.has(s.additive)) &&
+      (sel.time.size===0     || sel.time.has(s.time))
+    ));
+
+    countTotalEl.textContent    = "Total: " + swatches.length;
+    countFilteredEl.textContent = "Shown: " + filtered.length;
+  }
+
+  function onFilterChange() {
+    applyFilters();
+    redraw();
+  }
+
+  function setAllFilters(checked) {
+    const allCbs = document.querySelectorAll(".filter-chips input[type=checkbox]");
+    allCbs.forEach(cb => cb.checked = checked);
+    applyFilters();
+    redraw();
+  }
+
+  selectAllBtn.addEventListener("click", ()=> setAllFilters(true));
+  clearAllBtn.addEventListener("click", ()=> setAllFilters(false));
+
+  // mode switching
+  Array.from(document.querySelectorAll('input[name="mode"]')).forEach(r=>{
+    r.addEventListener("change", ()=>{
+      mode = r.value;
+      gridSettings.style.display = (mode === "grid") ? "block" : "none";
+      redraw();
+    });
+  });
+
+  // zoom / size
+  function syncZoom() {
+    zoomVal.textContent = zoomSl.value + "×";
+    redraw();
+  }
+  function syncSize() {
+    sizeVal.textContent = sizeSl.value + "px";
+    redraw();
+  }
+  zoomSl.addEventListener("input", syncZoom);
+  sizeSl.addEventListener("input", syncSize);
+
+  function showGuidesChanged() { redraw(); }
+  showGuidesEl.addEventListener("change", showGuidesChanged);
+
+  // grid axis selectors
+  function buildAxisSelectors() {
+    const opts = [
+      { value:"dyestuff", label:"Dyestuff" },
+      { value:"pH",       label:"pH" },
+      { value:"mordant",  label:"Mordant" },
+      { value:"additive", label:"Additive" },
+      { value:"time",     label:"Time" }
+    ];
+    [gridOuterXEl,gridOuterYEl,gridInnerXEl,gridInnerYEl].forEach(sel=>{
+      sel.innerHTML = "";
+      opts.forEach(o=>{
+        const opt = document.createElement("option");
+        opt.value = o.value;
+        opt.textContent = o.label;
+        sel.appendChild(opt);
       });
+    });
+    gridOuterXEl.value = "dyestuff";
+    gridOuterYEl.value = "pH";
+    gridInnerXEl.value = "mordant";
+    gridInnerYEl.value = "time";
+  }
+  [gridOuterXEl,gridOuterYEl,gridInnerXEl,gridInnerYEl].forEach(sel=>{
+    sel.addEventListener("change", ()=> redraw());
+  });
 
-      root.appendChild(frag);
+  // --- LOADING SWATCHES ---
+  loadBtn.addEventListener("click", async ()=>{
+    try {
+      setStatus("loading…");
+      infoEl.textContent = "Loading lookup and images…";
 
-      const all = document.getElementById(allId);
-      const boxes = [...root.querySelectorAll('input[type="checkbox"][id^="f-"]')];
+      let lut = await loadJSON(LUT_URL);
+      if (!Array.isArray(lut)) lut = Object.values(lut);
 
-      const sync = ()=>{
-        if(all.checked){ filters[p]=null; boxes.forEach(b=> b.checked=false); }
-        else{
-          const sel = new Set(boxes.filter(b=>b.checked).map(b=>b.dataset.value));
-          filters[p] = sel.size ? sel : new Set(); // empty = hide all
+      // pre-shape
+      const raw = lut.map(r => ({
+        filename: r.filename,
+        dyestuff: r.dyestuff,
+        pH:       r.pH,
+        mordant:  r.mordant,
+        additive: r.additive,
+        time:     r.time,
+        h:        Number(r.h),
+        s:        Number(r.s),
+        b:        Number(r.b)
+      }));
+
+      // load bordered & preview images
+      const promises = raw.map(async meta => {
+        const mainPath    = SWATCH_FOLDER  + meta.filename;
+        const previewPath = PREVIEW_FOLDER + meta.filename;
+        try {
+          const [imgMain, imgPreview] = await Promise.all([
+            loadImage(mainPath),
+            loadImage(previewPath).catch(()=>loadImage(mainPath)) // fallback
+          ]);
+          return { ...meta, imgMain, imgPreview };
+        } catch (e) {
+          console.warn("Failed swatch", meta.filename, e);
+          return null;
         }
-        relayoutAndDraw();
-      };
-      all.addEventListener("change", sync);
-      boxes.forEach(b=> b.addEventListener("change", ()=>{ all.checked=false; sync(); }));
-
-      filters[p]=null;
-    }
-  }
-
-  function renderAxisControls(){
-    const opts = PARAMS.map(p=> `<option value="${p}">${p}</option>`).join("");
-    xAxisSel.innerHTML = opts; yAxisSel.innerHTML = opts;
-    innerXSel.innerHTML = `<option value="">(none)</option>` + opts;
-    innerYSel.innerHTML = `<option value="">(none)</option>` + opts;
-    xAxisSel.value="dyestuff"; yAxisSel.value="pH";
-    innerXSel.value="mordant"; innerYSel.value="time";
-    [xAxisSel,yAxisSel,innerXSel,innerYSel].forEach(el=> el.addEventListener("change", relayoutAndDraw));
-  }
-
-  function setGridPanelVisibility(){
-    gridPanel.style.display = (mode === "grid") ? "block" : "none";
-  }
-
-  function passesFilters(e){
-    for(const p of PARAMS){
-      const sel = filters[p];
-      if(sel===null) continue;
-      if(sel.size===0) return false;
-      if(!sel.has(e[p])) return false;
-    }
-    return true;
-  }
-  const filtered = (list)=> list.filter(passesFilters);
-  const metaPack = (e)=> ({ filename:e.filename, dyestuff:e.dyestuff, pH:e.pH, mordant:e.mordant, additive:e.additive, time:e.time });
-
-  // -------- LAYOUTS --------
-  function layoutPolar(list){
-    const outR = OUTER_R(); const arr=[];
-    for(const e of filtered(list)){
-      const h=((e.h%360)+360)%360, s=clamp(e.s,0,100), b=clamp(e.b,0,100);
-      const th=toRad(h-90), r=Math.round(map(s,0,100,INNER_R,outR));
-      const x=r*Math.cos(th), y=r*Math.sin(th);
-      const size=map(b,0,100,BASE_MIN_SIZE,BASE_MAX_SIZE);
-      arr.push({ img: e.img, h, s, b, x, y, baseSize: size, meta: metaPack(e) });
-    }
-    arr.sort((a,b)=> a.y-b.y);
-    layoutPolar._axes=null;
-    return arr;
-  }
-
-  // Grid with optional nested inner axes (X′, Y′)
-  function layoutGrid(list){
-    const data = filtered(list);
-    const X = xAxisSel.value, Y=yAxisSel.value;
-    const IX = innerXSel.value || null, IY = innerYSel.value || null;
-
-    const xs = uniq[X].slice(), ys=uniq[Y].slice();
-    const xi = new Map(xs.map((v,i)=>[v,i]));
-    const yi = new Map(ys.map((v,i)=>[v,i]));
-
-    const pad=70, W=DIAM-pad*2, H=DIAM-pad*2;
-    const colW = xs.length ? W/xs.length : W;
-    const rowH = ys.length ? H/ys.length : H;
-
-    const innerMap = new Map();
-    const key = (xv,yv)=> `${xv}||${yv}`;
-
-    if (IX || IY){
-      for(const e of data){
-        const k = key(e[X], e[Y]);
-        if(!innerMap.has(k)){
-          innerMap.set(k, {
-            ixVals: IX ? [] : null, iyVals: IY ? [] : null,
-            ixSeen: IX ? new Set() : null, iySeen: IY ? new Set() : null
-          });
-        }
-        const cell = innerMap.get(k);
-        if (IX && !cell.ixSeen.has(e[IX])) { cell.ixSeen.add(e[IX]); cell.ixVals.push(e[IX]); }
-        if (IY && !cell.iySeen.has(e[IY])) { cell.iySeen.add(e[IY]); cell.iyVals.push(e[IY]); }
-      }
-      innerMap.forEach(cell=>{
-        if(cell.ixVals) cell.ixVals.sort();
-        if(cell.iyVals) cell.iyVals.sort((a,b)=>{
-          if (IY === "time") return timeToMinutes(a) - timeToMinutes(b);
-          const A=parseInt(String(a).replace(/\D+/g,''))||0;
-          const B=parseInt(String(b).replace(/\D+/g,''))||0;
-          return A-B;
-        });
-        if(cell.ixVals) cell.ixIndex = new Map(cell.ixVals.map((v,i)=>[v,i]));
-        if(cell.iyVals) cell.iyIndex = new Map(cell.iyVals.map((v,i)=>[v,i]));
       });
+
+      const loaded = (await Promise.all(promises)).filter(Boolean);
+      swatches = loaded;
+      buildFilters();
+      buildAxisSelectors();
+      applyFilters();
+      setStatus("ready");
+      infoEl.textContent = `Loaded ${swatches.length} swatches. Use filters and toggles to explore.`;
+      redraw();
+    } catch (err) {
+      console.error(err);
+      setStatus("error");
+      infoEl.textContent = "Failed to load swatches.";
+      alert("Error loading swatches: "+err.message);
     }
+  });
 
-    const arr=[];
-    for(const e of data){
-      const cx = xi.get(e[X]), cy = yi.get(e[Y]);
-      if (cx==null || cy==null) continue;
-
-      const cellX = pad + cx*colW, cellY = pad + cy*rowH;
-      const centerX = cellX + colW/2, centerY = cellY + rowH/2;
-
-      const size = map(e.b,0,100,BASE_MIN_SIZE,BASE_MAX_SIZE);
-
-      let x=centerX, y=centerY;
-
-      if (IX || IY){
-        const cell = innerMap.get(key(e[X], e[Y]));
-        const innerCols = cell?.ixVals?.length || 1;
-        const innerRows = cell?.iyVals?.length || 1;
-
-        const gridPad = Math.min(colW,rowH)*0.15; // margin inside cell
-        const innerW = colW - gridPad*2;
-        const innerH = rowH - gridPad*2;
-
-        const ix = IX ? cell.ixIndex.get(e[IX]) : 0;
-        const iy = IY ? cell.iyIndex.get(e[IY]) : 0;
-
-        const colCW = innerW / innerCols;
-        const rowRH = innerH / innerRows;
-
-        x = cellX + gridPad + (ix + 0.5) * colCW;
-        y = cellY + gridPad + (iy + 0.5) * rowRH;
-      } else {
-        // small nudge for duplicates without inner axes
-        const seed = e.filename; let hash=0;
-        for(let i=0;i<seed.length;i++) hash=(hash*131+seed.charCodeAt(i))|0;
-        const ang=(hash>>>0)%360*Math.PI/180;
-        const rad=Math.min(colW,rowH)*0.12*((hash>>>8)%100)/100;
-        x = centerX + Math.cos(ang)*rad; y = centerY + Math.sin(ang)*rad;
-      }
-
-      arr.push({img:e.img, h:e.h, s:e.s, b:e.b, x, y, baseSize:size, meta:metaPack(e)});
-    }
-
-    layoutGrid._axes = { xs, ys, pad, colW, rowH, X, Y, IX, IY, innerMap };
-    return arr;
+  // --- DRAWING ---
+  function clearCanvas() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
   }
 
-  // -------- DRAWING --------
-  function applyView(){
-    ctx.translate(DIAM/2 + view.offsetX, DIAM/2 + view.offsetY);
-    ctx.scale(view.scale, view.scale);
-    if (mode==="grid"){ ctx.translate(-DIAM/2, -DIAM/2); }
-  }
-  function clear(){
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr);
+  function redraw() {
+    if (!swatches.length) {
+      clearCanvas();
+      layout = [];
+      drawThumb();
+      return;
+    }
+
+    clearCanvas();
+    layout = [];
+
+    if (mode === "polar") drawPolar();
+    else drawGrid();
+
+    drawThumb();
   }
 
-  function drawGuidesPolar(){
-    if(!guidesEl.checked) return;
-    const outR = OUTER_R();
-    ctx.save(); applyView(); ctx.lineWidth = 1/view.scale;
-    for(let S=0; S<=100; S+=20){
-      const r = map(S,0,100, INNER_R, outR);
-      ctx.strokeStyle = (S%50===0)?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.13)";
-      ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
+  function drawThumb() {
+    const w = canvas.width;
+    const h = canvas.height;
+    const scale = 0.35;
+    const tw = w * scale;
+    const th = h * scale;
+    thumb.width  = tw;
+    thumb.height = th;
+    tctx.clearRect(0,0,tw,th);
+    tctx.drawImage(canvas, 0, 0, w, h, 0, 0, tw, th);
+    thumb.style.display = "block";
+  }
+
+  function drawPolar() {
+    const w = canvas.width;
+    const h = canvas.height;
+    const cx = w/2;
+    const cy = h/2;
+
+    const zoom = parseFloat(zoomSl.value);
+    const size = parseInt(sizeSl.value,10);
+
+    const maxR = (Math.min(w,h)/2 - size*2) * zoom;
+    const minR = size * 1.5;
+
+    // guides
+    if (showGuidesEl.checked) {
+      ctx.save();
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 1;
+      // circles at B=20,40,60,80,100
+      [20,40,60,80,100].forEach(br=>{
+        const r = minR + (br/100) * (maxR-minR);
+        ctx.beginPath();
+        ctx.arc(cx,cy,r,0,Math.PI*2);
+        ctx.stroke();
+      });
+      // axes at main hues
+      [0,60,120,180,240,300].forEach(hue=>{
+        const a = hue * Math.PI/180;
+        const r = maxR;
+        ctx.beginPath();
+        ctx.moveTo(cx,cy);
+        ctx.lineTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r);
+        ctx.stroke();
+      });
+      ctx.restore();
     }
-    ctx.strokeStyle="rgba(0,0,0,0.35)";
-    for(let H=0; H<360; H+=30){
-      const t = toRad(H-90);
+
+    // draw swatches
+    filtered.forEach(s=>{
+      const angle = (s.h-90) * Math.PI/180; // rotate so 0° at top
+      const r = minR + (s.b/100) * (maxR-minR);
+
+      const x = cx + Math.cos(angle)*r;
+      const y = cy + Math.sin(angle)*r;
+
+      const half = size/2;
+      ctx.save();
       ctx.beginPath();
-      ctx.moveTo((INNER_R-14)*Math.cos(t),(INNER_R-14)*Math.sin(t));
-      ctx.lineTo((OUTER_R()+14)*Math.cos(t),(OUTER_R()+14)*Math.sin(t));
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // Grid lines + axis names + tick labels (with pH annotations)
-  function drawGuidesGrid(){
-    if(!guidesEl.checked) return;
-    const ax = layoutGrid._axes; if(!ax) return;
-    const { xs, ys, pad, colW, rowH, X, Y, IX, IY, innerMap } = ax;
-
-    ctx.save(); applyView(); ctx.lineWidth = 1/view.scale; ctx.strokeStyle="rgba(0,0,0,0.18)";
-    // outer grid
-    for(let i=0;i<=xs.length;i++){
-      const x=pad+i*colW;
-      ctx.beginPath(); ctx.moveTo(x,pad); ctx.lineTo(x,pad+ys.length*rowH); ctx.stroke();
-    }
-    for(let j=0;j<=ys.length;j++){
-      const y=pad+j*rowH;
-      ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(pad+xs.length*colW, y); ctx.stroke();
-    }
-
-    // axis names
-    ctx.fillStyle="#111"; ctx.font=(12/view.scale)+"px system-ui";
-    ctx.textAlign="center"; ctx.textBaseline="bottom";
-    ctx.fillText(X, pad+(xs.length*colW)/2, pad-20/view.scale);
-    ctx.save();
-    ctx.translate(pad-42/view.scale, pad+(ys.length*rowH)/2); // moved left to avoid overlap
-    ctx.rotate(-Math.PI/2);
-    ctx.fillText(Y, 0, 0);
-    ctx.restore();
-
-    // tick labels
-    ctx.fillStyle="#111"; ctx.font=(11/view.scale)+"px system-ui";
-    // X ticks (top)
-    for(let ci=0; ci<xs.length; ci++){
-      const xv = xs[ci];
-      const x = pad + ci*colW + colW/2;
-      ctx.textAlign="center"; ctx.textBaseline="bottom";
-      ctx.fillText(displayVal(X, xv), x, pad-4/view.scale);
-    }
-    // Y ticks (left)
-    for(let rj=0; rj<ys.length; rj++){
-      const yv = ys[rj];
-      const y = pad + rj*rowH + rowH/2;
-      ctx.textAlign="right"; ctx.textBaseline="middle";
-      ctx.fillText(displayVal(Y, yv), pad-8/view.scale, y);
-    }
-
-    // inner grid hints
-    if (IX || IY){
-      ctx.setLineDash([3/view.scale, 3/view.scale]); ctx.strokeStyle="rgba(0,0,0,0.12)";
-      xs.forEach((xv,ci)=>{
-        ys.forEach((yv,rj)=>{
-          const cell = innerMap.get(`${xv}||${yv}`); if(!cell) return;
-          const innerCols = cell.ixVals?.length || 1;
-          const innerRows = cell.iyVals?.length || 1;
-          const cellX = pad + ci*colW, cellY = pad + rj*rowH;
-          const gridPad = Math.min(colW,rowH)*0.15;
-          const innerW = colW-gridPad*2, innerH=rowH-gridPad*2;
-          const colCW = innerW/innerCols, rowRH=innerH/innerRows;
-
-          for(let k=1;k<innerCols;k++){
-            const x = cellX+gridPad + k*colCW;
-            ctx.beginPath(); ctx.moveTo(x, cellY+gridPad); ctx.lineTo(x, cellY+gridPad+innerH); ctx.stroke();
-          }
-          for(let k=1;k<innerRows;k++){
-            const y = cellY+gridPad + k*rowRH;
-            ctx.beginPath(); ctx.moveTo(cellX+gridPad, y); ctx.lineTo(cellX+gridPad+innerW, y); ctx.stroke();
-          }
-        });
-      });
-      ctx.setLineDash([]);
-    }
-    ctx.restore();
-  }
-
-  function fillRoundRect(x,y,w,h,r,color,alpha=1){
-    const rr = Math.max(0, Math.min(r, Math.min(w,h)/2));
-    ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=color;
-    ctx.beginPath();
-    ctx.moveTo(x+rr,y); ctx.lineTo(x+w-rr,y); ctx.quadraticCurveTo(x+w,y,x+w,y+rr);
-    ctx.lineTo(x+w,y+h-rr); ctx.quadraticCurveTo(x+w,y+h,x+w-rr,y+h);
-    ctx.lineTo(x+rr,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-rr);
-    ctx.lineTo(x,y+rr); ctx.quadraticCurveTo(x,y,x+rr,y);
-    ctx.closePath(); ctx.fill(); ctx.restore();
-  }
-
-  function drawSprites(){
-    ctx.save(); applyView();
-    for(let i=0;i<sprites.length;i++){
-      const s=sprites[i];
-      const size = s.baseSize * sizeScale;
-      const a = lerp(MIN_ALPHA, MAX_ALPHA, s.b/100);
-
-      // hover-only shadow square
-      if (i===hoverIdx){
-        const rx=s.x-(size/2)+2, ry=s.y-(size/2)+2;
-        fillRoundRect(rx, ry, size+4, size+4, Math.max(3,size*0.08), "black", 0.18);
-      }
-
-      // draw square-cropped image
-      const w=s.img.width, h=s.img.height;
-      const side=Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
-      ctx.save(); ctx.globalAlpha=a;
-      ctx.drawImage(s.img, sx, sy, side, side, s.x-size/2, s.y-size/2, size, size);
+      ctx.rect(x-half, y-half, size, size);
+      ctx.clip();
+      const img = s.imgMain;
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width-side)/2;
+      const sy = (img.height-side)/2;
+      ctx.drawImage(img, sx, sy, side, side, x-half, y-half, size, size);
       ctx.restore();
 
-      if (i===hoverIdx){
-        ctx.save(); ctx.lineWidth=Math.max(1, 2/view.scale); ctx.strokeStyle="rgba(0,0,0,0.65)";
-        ctx.strokeRect(s.x-size/2, s.y-size/2, size, size); ctx.restore();
+      layout.push({ x, y, size, swatch:s });
+    });
+  }
+
+  function getParamValues(param, list) {
+    const uniq = (arr) => [...new Set(arr)];
+    if (param === "pH") {
+      return sortPH(uniq(list.map(s=>s.pH)));
+    } else if (param === "time") {
+      return sortTime(uniq(list.map(s=>s.time)));
+    } else if (param === "dyestuff") {
+      return uniq(list.map(s=>s.dyestuff)).sort((a,b)=>a.localeCompare(b));
+    } else if (param === "mordant") {
+      return uniq(list.map(s=>s.mordant)).sort((a,b)=>a.localeCompare(b));
+    } else if (param === "additive") {
+      return uniq(list.map(s=>s.additive)).sort((a,b)=>a.localeCompare(b));
+    }
+    return [];
+  }
+
+  function drawGrid() {
+    const w = canvas.width;
+    const h = canvas.height;
+
+    const zoom   = parseFloat(zoomSl.value);
+    const size   = parseInt(sizeSl.value,10);
+    const margin = 40;
+
+    const outerX = gridOuterXEl.value;
+    const outerY = gridOuterYEl.value;
+    const innerX = gridInnerXEl.value;
+    const innerY = gridInnerYEl.value;
+
+    const outerXVals = getParamValues(outerX, filtered);
+    const outerYVals = getParamValues(outerY, filtered);
+
+    const cols = Math.max(outerXVals.length, 1);
+    const rows = Math.max(outerYVals.length, 1);
+
+    const gridW = (w - margin*2) * zoom;
+    const gridH = (h - margin*2) * zoom;
+
+    const cellW = gridW / Math.max(cols,1);
+    const cellH = gridH / Math.max(rows,1);
+
+    const originX = margin + (w - margin*2 - gridW)/2;
+    const originY = margin + (h - margin*2 - gridH)/2;
+
+    // precompute inner value sets per param
+    const innerXVals = getParamValues(innerX, filtered);
+    const innerYVals = getParamValues(innerY, filtered);
+
+    const pad = size * 0.6;
+    const innerW = Math.max(cellW - pad*2, size);
+    const innerH = Math.max(cellH - pad*2, size);
+
+    // guides & labels
+    if (showGuidesEl.checked) {
+      ctx.save();
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 1;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "11px system-ui, sans-serif";
+
+      // vertical grid lines + X labels
+      for (let i=0;i<=cols;i++) {
+        const x = originX + cellW * i;
+        ctx.beginPath();
+        ctx.moveTo(x, originY);
+        ctx.lineTo(x, originY + gridH);
+        ctx.stroke();
       }
-    }
-    ctx.restore();
-  }
-
-  function draw(){
-    clear();
-    if (mode==="polar") drawGuidesPolar(); else drawGuidesGrid();
-    drawSprites();
-  }
-
-  // -------- INTERACTION --------
-  function screenToWorld(mx,my){
-    const r = canvas.getBoundingClientRect();
-    let x = (mx - r.left - DIAM/2 - view.offsetX) / view.scale;
-    let y = (my - r.top  - DIAM/2 - view.offsetY) / view.scale;
-    if (mode==="grid"){ x += DIAM/2; y += DIAM/2; }
-    return {x,y};
-  }
-  function findHover(mx,my){
-    if(!sprites.length) return -1;
-    const {x,y} = screenToWorld(mx,my);
-    let best=-1, bestD=Infinity;
-    for(let i=0;i<sprites.length;i++){
-      const s=sprites[i];
-      const size=s.baseSize*sizeScale;
-      const dx=Math.abs(x-s.x), dy=Math.abs(y-s.y);
-      const hit=size*0.55;
-      if(dx<=hit && dy<=hit){
-        const d=Math.hypot(dx,dy);
-        if(d<bestD){ best=i; bestD=d; }
+      for (let i=0;i<cols;i++) {
+        const cx = originX + cellW * (i+0.5);
+        const label = formatAxisLabel(outerX, outerXVals[i]);
+        ctx.fillText(label, cx, originY - 18);
       }
+      // outer X param name
+      ctx.font = "bold 11px system-ui, sans-serif";
+      ctx.fillText("X: "+ axisTitle(outerX), originX + gridW/2, originY - 32);
+
+      // horizontal grid lines + Y labels
+      ctx.font = "11px system-ui, sans-serif";
+      for (let j=0;j<=rows;j++) {
+        const y = originY + cellH * j;
+        ctx.beginPath();
+        ctx.moveTo(originX, y);
+        ctx.lineTo(originX + gridW, y);
+        ctx.stroke();
+      }
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (let j=0;j<rows;j++) {
+        const cy = originY + cellH * (j+0.5);
+        const label = formatAxisLabel(outerY, outerYVals[j]);
+        ctx.fillText(label, originX - 6, cy);
+      }
+      // outer Y param name
+      ctx.save();
+      ctx.translate(originX - 34, originY + gridH/2);
+      ctx.rotate(-Math.PI/2);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold 11px system-ui, sans-serif";
+      ctx.fillText("Y: "+ axisTitle(outerY), 0, 0);
+      ctx.restore();
+
+      ctx.restore();
     }
-    return best;
-  }
 
-  function drawPreview(idx){
-    bctx.clearRect(0,0,big.width,big.height);
-    if(idx<0){ meta.textContent="Hover a swatch…"; return; }
-    const s=sprites[idx];
-    const pad=8, box=Math.min(big.width,big.height)-pad*2;
+    // group swatches by outer cells
+    const cellMap = new Map(); // key "xVal|yVal" -> array of swatches
+    function keyXY(xVal,yVal){ return xVal+"|"+yVal; }
+    filtered.forEach(s=>{
+      const xVal = s[outerX];
+      const yVal = s[outerY];
+      const key = keyXY(xVal,yVal);
+      if (!cellMap.has(key)) cellMap.set(key, []);
+      cellMap.get(key).push(s);
+    });
 
-    let img=s.img; const fname=s.meta.filename;
-    const cached=hiCache.get(fname);
-    if(cached===undefined && IMG_BASE_HI){
-      hiCache.set(fname,"loading");
-      loadImage(IMG_BASE_HI+fname).then(im=>{ hiCache.set(fname,im); if(idx===hoverIdx) drawPreview(idx); })
-                                  .catch(()=> hiCache.set(fname,"error"));
-    } else if (cached instanceof HTMLImageElement){ img=cached; }
+    // draw swatches cell by cell
+    cellMap.forEach((list, key)=>{
+      const [xVal,yVal] = key.split("|");
+      const i = outerXVals.indexOf(xVal);
+      const j = outerYVals.indexOf(yVal);
+      if (i<0 || j<0) return;
 
-    const w=img.width, h=img.height, side=Math.min(w,h), sx=(w-side)/2, sy=(h-side)/2;
-    bctx.save(); bctx.imageSmoothingEnabled=true;
-    bctx.drawImage(img, sx,sy,side,side, pad,pad, box,box); bctx.restore();
+      const cellX = originX + cellW * i;
+      const cellY = originY + cellH * j;
 
-    if(hiCache.get(fname)==="loading"){
-      bctx.save(); bctx.fillStyle="rgba(0,0,0,0.55)"; bctx.fillRect(pad,pad,box,box);
-      bctx.fillStyle="#fff"; bctx.font="bold 14px system-ui"; bctx.textAlign="center"; bctx.textBaseline="middle";
-      bctx.fillText("Loading hi-res…", pad+box/2, pad+box/2); bctx.restore();
-    }
+      // layout inside cell
+      list.forEach(s=>{
+        const ix = Math.max(innerXVals.indexOf(s[innerX]), 0);
+        const iy = Math.max(innerYVals.indexOf(s[innerY]), 0);
+        const maxIX = Math.max(innerXVals.length-1, 1);
+        const maxIY = Math.max(innerYVals.length-1, 1);
 
-    meta.innerHTML =
-      `<div><b>File</b>: ${s.meta.filename}</div>
-       <div><b>Dye</b>: ${s.meta.dyestuff}  <b>pH</b>: ${displayVal("pH", s.meta.pH)}</div>
-       <div><b>Mordant</b>: ${s.meta.mordant}</div>
-       <div><b>Additive</b>: ${s.meta.additive}  <b>Time</b>: ${s.meta.time}</div>
-       <div class="sep" style="margin:8px 0;"></div>
-       <div><b>H</b>: ${fmt2(s.h)}  <b>S</b>: ${fmt2(s.s)}  <b>B</b>: ${fmt2(s.b)}</div>`;
-  }
+        const nx = maxIX===0 ? 0.5 : ix / maxIX;
+        const ny = maxIY===0 ? 0.5 : iy / maxIY;
 
-  // mouse hover
-  canvas.addEventListener("mousemove",(e)=>{ const i=findHover(e.clientX,e.clientY); if(i!==hoverIdx){ hoverIdx=i; draw(); drawPreview(hoverIdx);} });
-  canvas.addEventListener("mouseleave",()=>{ hoverIdx=-1; draw(); drawPreview(-1); });
+        const cx = cellX + pad + nx * innerW;
+        const cy = cellY + pad + ny * innerH;
 
-  // drag to pan
-  let dragging=false,lastX=0,lastY=0;
-  canvas.addEventListener("mousedown",(e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
-  window.addEventListener("mouseup", ()=> dragging=false);
-  window.addEventListener("mousemove",(e)=>{ if(!dragging) return; const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY; view.offsetX+=dx; view.offsetY+=dy; draw(); });
+        const drawSize = size;
+        const half = drawSize/2;
 
-  // wheel to zoom (cursor-centered)
-  canvas.addEventListener("wheel",(e)=>{ e.preventDefault(); const f=(e.deltaY<0)?1.1:1/1.1; zoomAt(e.clientX,e.clientY,f); }, {passive:false});
-  function zoomAt(mx,my,factor){
-    const newScale = clamp(view.scale*factor, 0.5, 4);
-    factor = newScale / view.scale;
-    const r = canvas.getBoundingClientRect();
-    const cx = mx - r.left - DIAM/2 - view.offsetX;
-    const cy = my - r.top  - DIAM/2 - view.offsetY;
-    view.offsetX -= cx*(factor-1); view.offsetY -= cy*(factor-1);
-    view.scale = newScale; zoomSlider.value = view.scale.toFixed(2); zoomVal.textContent = `${view.scale.toFixed(2)}×`; draw();
-  }
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cx-half, cy-half, drawSize, drawSize);
+        ctx.clip();
+        const img = s.imgMain;
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width-side)/2;
+        const sy = (img.height-side)/2;
+        ctx.drawImage(img, sx, sy, side, side, cx-half, cy-half, drawSize, drawSize);
+        ctx.restore();
 
-  // right-side controls
-  zoomSlider.addEventListener("input",()=>{ const target=Number(zoomSlider.value); const r=canvas.getBoundingClientRect(); zoomAt(r.left+DIAM/2, r.top+DIAM/2, target/view.scale); });
-  sizeSlider.addEventListener("input",()=>{ sizeScale=Number(sizeSlider.value); sizeVal.textContent=`${sizeScale.toFixed(2)}×`; draw(); });
-  resetBtn.addEventListener("click",()=>{ zoomSlider.value="1.00"; zoomVal.textContent="1.00×"; sizeSlider.value="1.00"; sizeVal.textContent="1.00×"; sizeScale=1; resetView(); });
-
-  // mode change
-  modeEls.forEach(r=> r.addEventListener("change",()=>{
-    mode = modeEls.find(e=>e.checked)?.value || "polar";
-    setGridPanelVisibility();
-    relayoutAndDraw();
-  }));
-
-  // -------- LIFECYCLE --------
-  function relayoutAndDraw(){
-    if(!entries.length) return;
-    // keep already loaded images
-    const imgBy = new Map(sprites.map(s=> [s.meta.filename, s.img]));
-    const withImg = entries.map(e=> ({...e, img: imgBy.get(e.filename) || null}));
-    const need = filtered(withImg).filter(e=> !e.img);
-    Promise.all(need.map(e=> loadImage(IMG_BASE+e.filename).then(img=>{e.img=img;}).catch(()=>{})))
-      .then(()=> {
-        sprites = (mode==="polar") ? layoutPolar(withImg) : layoutGrid(withImg);
-        draw(); drawPreview(hoverIdx);
+        layout.push({ x:cx, y:cy, size:drawSize, swatch:s });
       });
+    });
   }
 
-  loadBtn.addEventListener("click", ()=>{ hiCache.clear(); loadAll().catch(err=> alert("Load failed: "+err.message)); });
-
-  async function loadAll(){
-    IMG_BASE    = imgBaseEl.value.trim();
-    IMG_BASE_HI = imgBaseHiEl.value.trim();
-    LUT_URL     = lutUrlEl.value.trim();
-    setCanvasSize(parseInt(diamEl.value,10) || 1000);
-
-    let lut = await loadJSON(LUT_URL);
-    if(!Array.isArray(lut)) lut = Object.values(lut);
-
-    // normalize entries
-    entries = lut.map(r=> ({
-      filename:r.filename,
-      h:Number(r.h), s:Number(r.s), b:Number(r.b),
-      dyestuff:r.dyestuff, pH:r.pH, mordant:r.mordant, additive:r.additive, time:r.time
-    })).filter(r=> Number.isFinite(r.h) && Number.isFinite(r.s) && Number.isFinite(r.b));
-
-    buildUniques(entries);
-    renderFilters();
-    renderAxisControls();
-    setGridPanelVisibility();
-
-    const loads = entries.map(e=> loadImage(IMG_BASE+e.filename).then(img=> ({...e,img})).catch(()=>null));
-    const loaded = (await Promise.all(loads)).filter(Boolean);
-
-    sprites = layoutPolar(loaded);
-    draw(); drawPreview(-1);
+  function formatAxisLabel(param, value) {
+    if (param === "pH")   return labelPH(value);
+    if (param === "time") return labelTime(value);
+    return value;
   }
 
-  // init
-  (function init(){
-    sizeVal.textContent="1.00×"; zoomVal.textContent="1.00×";
-    setCanvasSize(parseInt(diamEl.value,10) || 1000);
-    draw();
-    loadAll().catch(console.error);
-  })();
+  function axisTitle(param) {
+    if (param === "dyestuff") return "Dyestuff";
+    if (param === "pH")       return "pH";
+    if (param === "mordant")  return "Mordant";
+    if (param === "additive") return "Additive";
+    if (param === "time")     return "Time";
+    return param;
+  }
+
+  // --- HOVER ---
+  function distance2(x1,y1,x2,y2) {
+    const dx = x1-x2, dy=y1-y2;
+    return dx*dx+dy*dy;
+  }
+
+  canvas.addEventListener("mousemove", (e)=>{
+    if (!layout.length) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let best = null;
+    let bestDist = Infinity;
+    layout.forEach(entry=>{
+      const r = entry.size/1.5;
+      const d2 = distance2(mx,my, entry.x, entry.y);
+      if (d2 < r*r && d2 < bestDist) {
+        best = entry;
+        bestDist = d2;
+      }
+    });
+
+    if (best) showHover(best.swatch);
+    else clearHover();
+  });
+
+  canvas.addEventListener("mouseleave", clearHover);
+
+  function clearHover() {
+    hctx.clearRect(0,0,hoverC.width,hoverC.height);
+    for (const k in hoverFields) {
+      hoverFields[k].textContent = "—";
+    }
+  }
+
+  function showHover(s) {
+    // draw preview image
+    hctx.clearRect(0,0,hoverC.width,hoverC.height);
+    const img = s.imgPreview || s.imgMain;
+    const side = Math.min(img.width, img.height);
+    const sx = (img.width-side)/2;
+    const sy = (img.height-side)/2;
+    hctx.imageSmoothingEnabled = true;
+    hctx.drawImage(img, sx, sy, side, side, 0, 0, hoverC.width, hoverC.height);
+
+    hoverFields.filename.textContent = s.filename;
+    hoverFields.dyestuff.textContent = s.dyestuff;
+    hoverFields.pH.textContent       = labelPH(s.pH);
+    hoverFields.mordant.textContent  = s.mordant;
+    hoverFields.additive.textContent = s.additive;
+    hoverFields.time.textContent     = labelTime(s.time);
+    hoverFields.H.textContent        = s.h.toFixed(1);
+    hoverFields.S.textContent        = s.s.toFixed(1);
+    hoverFields.B.textContent        = s.b.toFixed(1);
+  }
+
+  // --- initial ---
+  function init() {
+    gridSettings.style.display = "none";
+    zoomVal.textContent = zoomSl.value + "×";
+    sizeVal.textContent = sizeSl.value + "px";
+    clearHover();
+  }
+
+  init();
 })();
